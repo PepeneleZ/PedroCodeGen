@@ -1,0 +1,649 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pedro Path Planner</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=DM+Sans:wght@400;500&display=swap');
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f0f1a;
+    --bg2: #16162a;
+    --bg3: #1e1e35;
+    --border: rgba(120,120,200,0.18);
+    --border2: rgba(120,120,200,0.32);
+    --text: #e8e8f0;
+    --text2: #8888aa;
+    --text3: #555577;
+    --blue: #4488ee;
+    --blue-dim: rgba(68,136,238,0.15);
+    --blue-bright: #66aaff;
+    --green: #44bb77;
+    --green-dim: rgba(68,187,119,0.15);
+    --amber: #ffcc44;
+    --amber-dim: rgba(255,204,68,0.15);
+    --red: #ee5555;
+    --red-dim: rgba(238,85,85,0.15);
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'DM Sans', sans-serif;
+    --radius: 6px;
+    --radius-lg: 10px;
+  }
+
+  html, body {
+    width: 100%; height: 100%; overflow: hidden;
+    background: var(--bg); color: var(--text);
+    font-family: var(--sans); font-size: 13px;
+  }
+
+  #app {
+    display: flex; flex-direction: column;
+    width: 100vw; height: 100vh; overflow: hidden;
+  }
+
+  /* ── Topbar ── */
+  #topbar {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 16px; height: 44px; flex-shrink: 0;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+  }
+  #topbar .logo {
+    font-family: var(--mono); font-size: 13px; font-weight: 700;
+    color: var(--blue-bright); letter-spacing: .04em; margin-right: 8px;
+  }
+  .sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+  .tb-label { font-size: 11px; color: var(--text2); }
+  #topbar input[type=text] {
+    font-family: var(--mono); font-size: 11px; padding: 4px 8px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg3); color: var(--text); width: 130px; outline: none;
+  }
+  #topbar input[type=text]:focus { border-color: var(--blue); }
+  #topbar select {
+    font-size: 11px; padding: 4px 6px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg3); color: var(--text); outline: none;
+  }
+  .tb-btn {
+    font-size: 11px; padding: 5px 11px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: transparent; color: var(--text2); cursor: pointer;
+    transition: all .15s; white-space: nowrap; font-family: var(--sans);
+  }
+  .tb-btn:hover { background: var(--bg3); color: var(--text); border-color: var(--border2); }
+  .tb-btn.active { background: var(--blue-dim); color: var(--blue-bright); border-color: var(--blue); }
+  .tb-btn.green { background: var(--green-dim); color: var(--green); border-color: rgba(68,187,119,0.4); }
+  .tb-btn.red { color: var(--red); }
+  .tb-btn.red:hover { background: var(--red-dim); border-color: rgba(238,85,85,0.4); }
+
+  /* ── Main layout ── */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Left panel ── */
+  #left-panel {
+    width: 230px; min-width: 230px; display: flex; flex-direction: column;
+    border-right: 1px solid var(--border); background: var(--bg2); overflow: hidden;
+  }
+  #chain-tabs {
+    display: flex; flex-shrink: 0; overflow-x: auto;
+    border-bottom: 1px solid var(--border); background: var(--bg);
+  }
+  .chain-tab {
+    font-size: 11px; padding: 7px 12px; cursor: pointer;
+    white-space: nowrap; border-right: 1px solid var(--border);
+    color: var(--text2); font-family: var(--mono);
+    transition: all .12s;
+  }
+  .chain-tab:hover { color: var(--text); }
+  .chain-tab.active { background: var(--bg2); color: var(--blue-bright); }
+  .chain-tab.add-tab { color: var(--blue); }
+
+  #wp-scroll { flex: 1; overflow-y: auto; padding: 8px; }
+  #wp-scroll::-webkit-scrollbar { width: 4px; }
+  #wp-scroll::-webkit-scrollbar-track { background: transparent; }
+  #wp-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .wp-card {
+    padding: 8px 10px; border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 5px; cursor: pointer;
+    background: var(--bg3); transition: all .12s;
+  }
+  .wp-card:hover { border-color: var(--border2); }
+  .wp-card.sel { border-color: var(--blue); background: var(--blue-dim); }
+  .wp-card .wt {
+    font-size: 11px; font-weight: 500; color: var(--text);
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono);
+  }
+  .wp-card.sel .wt { color: var(--blue-bright); }
+  .wp-card .ws { font-size: 10px; color: var(--text2); margin-top: 2px; font-family: var(--mono); }
+  .act-badge {
+    font-size: 9px; padding: 1px 5px; border-radius: 4px;
+    background: rgba(255,160,30,0.2); color: #ffaa33; margin-left: 4px;
+  }
+  .spd-badge { font-size: 9px; padding: 1px 5px; border-radius: 4px; margin-left: 3px; }
+  .spd-slow { background: var(--blue-dim); color: var(--blue-bright); }
+  .spd-fast { background: var(--green-dim); color: var(--green); }
+
+  /* ── Detail panel ── */
+  #detail {
+    padding: 10px; border-top: 1px solid var(--border);
+    background: var(--bg); flex-shrink: 0;
+  }
+  #detail h4 {
+    font-size: 9px; font-weight: 500; color: var(--text3);
+    text-transform: uppercase; letter-spacing: .1em;
+    margin-bottom: 8px; font-family: var(--mono);
+  }
+  .dr { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+  .dr label { font-size: 10px; color: var(--text2); width: 56px; flex-shrink: 0; }
+  .dr input, .dr select {
+    flex: 1; font-size: 11px; padding: 3px 6px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg3); color: var(--text); outline: none;
+    font-family: var(--mono);
+  }
+  .dr input:focus, .dr select:focus { border-color: var(--blue); }
+  .spd-group { display: flex; gap: 3px; flex: 1; }
+  .spd-opt {
+    flex: 1; font-size: 10px; padding: 4px 0; text-align: center;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    cursor: pointer; color: var(--text2); transition: all .12s;
+    font-family: var(--mono);
+  }
+  .spd-opt:hover { border-color: var(--border2); color: var(--text); }
+  .spd-opt.sel-slow { background: var(--blue-dim); color: var(--blue-bright); border-color: var(--blue); }
+  .spd-opt.sel-normal { background: var(--bg3); color: var(--text); border-color: var(--border2); }
+  .spd-opt.sel-fast { background: var(--green-dim); color: var(--green); border-color: rgba(68,187,119,0.5); }
+  .detail-btns { display: flex; gap: 5px; margin-top: 8px; flex-wrap: wrap; }
+  .d-btn {
+    font-size: 10px; padding: 3px 9px;
+    border: 1px solid var(--border); border-radius: var(--radius);
+    background: var(--bg3); color: var(--text2); cursor: pointer;
+    transition: all .12s; font-family: var(--sans);
+  }
+  .d-btn:hover { border-color: var(--border2); color: var(--text); }
+  .d-btn.del { color: var(--red); }
+  .d-btn.del:hover { background: var(--red-dim); border-color: rgba(238,85,85,0.4); }
+
+  /* ── Canvas ── */
+  #canvas-wrap {
+    flex: 1; position: relative; overflow: hidden; background: #0a0a14;
+  }
+  canvas#fc { display: block; width: 100%; height: 100%; }
+
+  #mode-hint {
+    position: absolute; top: 10px; left: 10px;
+    font-size: 10px; color: rgba(180,180,220,0.6);
+    pointer-events: none; background: rgba(10,10,20,0.7);
+    padding: 4px 10px; border-radius: var(--radius);
+    border: 1px solid var(--border); font-family: var(--mono);
+  }
+  #upload-zone {
+    position: absolute; top: 10px; right: 10px;
+    background: rgba(68,136,238,0.2); color: var(--blue-bright);
+    font-size: 10px; padding: 5px 10px; border-radius: var(--radius);
+    cursor: pointer; border: 1px solid rgba(68,136,238,0.4);
+    transition: all .15s; font-family: var(--mono);
+  }
+  #upload-zone:hover { background: rgba(68,136,238,0.3); }
+  #file-input { display: none; }
+  #hud {
+    position: absolute; bottom: 10px; left: 10px;
+    font-size: 10px; color: rgba(180,180,220,0.5);
+    font-family: var(--mono); pointer-events: none;
+  }
+  #hud-heading {
+    position: absolute; bottom: 10px; left: 180px;
+    font-size: 10px; color: rgba(255,220,80,0.7);
+    font-family: var(--mono); pointer-events: none;
+  }
+
+  /* ── Right panel (code) ── */
+  #right-panel {
+    width: 280px; min-width: 280px; display: flex; flex-direction: column;
+    border-left: 1px solid var(--border); background: var(--bg2);
+  }
+  #code-top {
+    padding: 9px 12px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  #code-top span { font-size: 11px; font-weight: 500; color: var(--text2); font-family: var(--mono); }
+  #code-out {
+    flex: 1; overflow-y: auto; padding: 10px;
+    font-family: var(--mono); font-size: 10px; line-height: 1.6;
+    white-space: pre; background: #0d0d18; color: #9cdcfe;
+  }
+  #code-out::-webkit-scrollbar { width: 4px; }
+  #code-out::-webkit-scrollbar-track { background: transparent; }
+  #code-out::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  .kw{color:#569cd6}.tp{color:#4ec9b0}.nm{color:#b5cea8}.cm{color:#4a7a4a}.fn{color:#dcdcaa}
+
+  /* ── Legend ── */
+  #legend {
+    padding: 6px 12px; border-top: 1px solid var(--border);
+    display: flex; gap: 10px; flex-shrink: 0; flex-wrap: wrap;
+  }
+  .leg-item { display: flex; align-items: center; gap: 5px; font-size: 9px; color: var(--text3); font-family: var(--mono); }
+  .leg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="topbar">
+    <span class="logo">Pedro Planner</span>
+    <div class="sep"></div>
+    <span class="tb-label">chain:</span>
+    <input type="text" id="chain-name" value="myPathChain"/>
+    <span class="tb-label">alliance:</span>
+    <select id="alliance" onchange="render()"><option>Red</option><option>Blue</option></select>
+    <div class="sep"></div>
+    <button class="tb-btn" id="tool-select-btn" onclick="setTool('select')">select</button>
+    <button class="tb-btn" id="tool-add-btn" onclick="setTool('add')">+ add point</button>
+    <div class="sep"></div>
+    <button class="tb-btn" onclick="addWaypoint()">+ waypoint</button>
+    <button class="tb-btn green" onclick="saveJSON()">save .json</button>
+    <button class="tb-btn" onclick="document.getElementById('load-input').click()">load</button>
+    <button class="tb-btn red" onclick="clearChain()">clear</button>
+    <input type="file" id="load-input" accept=".json" style="display:none" onchange="loadJSON(event)">
+  </div>
+  <div id="main">
+    <div id="left-panel">
+      <div id="chain-tabs"></div>
+      <div id="wp-scroll"></div>
+      <div id="detail">
+        <h4>Waypoint</h4>
+        <div id="detail-inner" style="color:var(--text2);font-size:11px;font-family:var(--mono)">select a point</div>
+      </div>
+    </div>
+    <div id="canvas-wrap">
+      <canvas id="fc"></canvas>
+      <div id="mode-hint">select / drag — yellow handle rotates heading</div>
+      <label id="upload-zone" for="file-input">upload map image</label>
+      <input type="file" id="file-input" accept="image/*" onchange="loadMapImage(event)">
+      <div id="hud">x: 0.0"  y: 0.0"</div>
+      <div id="hud-heading"></div>
+    </div>
+    <div id="right-panel">
+      <div id="code-top">
+        <span>generated java</span>
+        <button class="tb-btn" onclick="copyCode()" style="font-size:10px;padding:3px 9px">copy</button>
+      </div>
+      <div id="code-out"></div>
+      <div id="legend">
+        <div class="leg-item"><div class="leg-dot" style="background:#22cc66"></div>start</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#ee4444"></div>end</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#3366cc"></div>point</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#378ADD"></div>slow seg</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#44bb77"></div>fast seg</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#EF9F27"></div>action</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const FIELD=144,PR=8,CPR=5,HR=24;
+let chains=[{name:'myPathChain',wps:[]}];
+let activeChain=0,selIdx=null,selCP=null;
+let tool='select';
+let dragging=false,dragIdx=null,dragCP=null,dragHeading=false;
+let mapImg=null;
+let canvas,ctx;
+const SPEED_VALS={slow:0.4,normal:1.0,fast:1.5};
+const ACTIONS=['none','intake()','outtake()','raiseArm()','lowerArm()','openClaw()','closeClaw()','spinCarousel()','customAction()'];
+
+function wps(){return chains[activeChain].wps}
+
+function initCanvas(){
+  canvas=document.getElementById('fc');
+  resizeCanvas();
+  ctx=canvas.getContext('2d');
+  canvas.addEventListener('mousedown',onDown);
+  canvas.addEventListener('mousemove',onMove);
+  canvas.addEventListener('mouseup',onUp);
+  canvas.addEventListener('dblclick',onDbl);
+  window.addEventListener('resize',()=>{resizeCanvas();render();});
+  render();
+}
+
+function resizeCanvas(){
+  const wrap=document.getElementById('canvas-wrap');
+  canvas.width=wrap.clientWidth;
+  canvas.height=wrap.clientHeight;
+}
+
+function sc(){return Math.min(canvas.width,canvas.height)-32}
+function ox(){return(canvas.width-sc())/2}
+function oy(){return(canvas.height-sc())/2}
+function f2c(fx,fy){const s=sc();return{x:ox()+(fx/FIELD)*s,y:oy()+(1-fy/FIELD)*s}}
+function c2f(cx,cy){const s=sc();return{x:Math.max(0,Math.min(FIELD,((cx-ox())/s)*FIELD)),y:Math.max(0,Math.min(FIELD,(1-(cy-oy())/s)*FIELD))}}
+function rnd1(v){return Math.round(v*10)/10}
+
+function headingHandlePos(wp){
+  const p=f2c(wp.x,wp.y);const hr=wp.heading*Math.PI/180;
+  return{x:p.x+Math.cos(hr)*HR,y:p.y-Math.sin(hr)*HR};
+}
+function isNearHeadingHandle(cx,cy,wp){
+  const h=headingHandlePos(wp);
+  return Math.sqrt((cx-h.x)**2+(cy-h.y)**2)<10;
+}
+
+function drawField(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.fillStyle='#0a0a14';ctx.fillRect(0,0,canvas.width,canvas.height);
+  const s=sc(),_ox=ox(),_oy=oy();
+  if(mapImg){
+    ctx.drawImage(mapImg,_ox,_oy,s,s);
+    ctx.fillStyle='rgba(0,0,0,0.2)';ctx.fillRect(_ox,_oy,s,s);
+  } else {
+    for(let i=0;i<=6;i++){
+      ctx.strokeStyle='rgba(80,80,160,0.3)';ctx.lineWidth=0.5;
+      ctx.beginPath();ctx.moveTo(_ox+i*s/6,_oy);ctx.lineTo(_ox+i*s/6,_oy+s);ctx.stroke();
+      ctx.beginPath();ctx.moveTo(_ox,_oy+i*s/6);ctx.lineTo(_ox+s,_oy+i*s/6);ctx.stroke();
+    }
+    const al=document.getElementById('alliance').value;
+    ctx.fillStyle=al==='Red'?'rgba(160,40,40,0.1)':'rgba(40,80,200,0.1)';
+    ctx.fillRect(_ox,_oy+s/2,s/2,s/2);
+  }
+  ctx.strokeStyle='rgba(100,100,200,0.5)';ctx.lineWidth=1.5;ctx.strokeRect(_ox,_oy,s,s);
+  ctx.fillStyle='rgba(255,255,255,0.15)';ctx.font='9px JetBrains Mono, monospace';
+  ctx.fillText('0,0',_ox+4,_oy+s-4);ctx.fillText('144,0',_ox+s-38,_oy+s-4);ctx.fillText('0,144',_ox+4,_oy+12);
+}
+
+function speedStroke(spd){
+  if(spd==='slow')return'#378ADD';
+  if(spd==='fast')return'#44bb77';
+  return'#4488ee';
+}
+
+function drawPaths(){
+  const pts=wps();if(pts.length<2)return;
+  for(let i=1;i<pts.length;i++){
+    const a=pts[i-1],b=pts[i];
+    const pa=f2c(a.x,a.y),pb=f2c(b.x,b.y);
+    const col=speedStroke(b.speed||'normal');
+    ctx.lineWidth=2.5;ctx.setLineDash([]);
+    if(b.type==='Curve'){
+      const c1=f2c(b.cpx,b.cpy),c2=f2c(b.cp2x,b.cp2y);
+      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.bezierCurveTo(c1.x,c1.y,c2.x,c2.y,pb.x,pb.y);
+      ctx.strokeStyle=col;ctx.stroke();
+      if(i===selIdx){
+        ctx.strokeStyle='rgba(255,180,50,0.4)';ctx.lineWidth=1;ctx.setLineDash([3,3]);
+        ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(c1.x,c1.y);ctx.stroke();
+        ctx.beginPath();ctx.moveTo(pb.x,pb.y);ctx.lineTo(c2.x,c2.y);ctx.stroke();
+        ctx.setLineDash([]);drawCP(c1,'cp1');drawCP(c2,'cp2');
+      }
+    } else {
+      ctx.beginPath();ctx.moveTo(pa.x,pa.y);ctx.lineTo(pb.x,pb.y);
+      ctx.strokeStyle=col;ctx.setLineDash([5,3]);ctx.stroke();ctx.setLineDash([]);
+    }
+    const spd=b.speed||'normal';
+    if(spd!=='normal'){
+      const mx=(pa.x+pb.x)/2,my=(pa.y+pb.y)/2;
+      ctx.fillStyle=spd==='slow'?'rgba(55,138,221,0.8)':'rgba(68,187,119,0.8)';
+      ctx.beginPath();ctx.roundRect(mx-16,my-8,32,16,4);ctx.fill();
+      ctx.fillStyle='#fff';ctx.font='bold 8px JetBrains Mono, monospace';
+      ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(spd,mx,my);
+      ctx.textAlign='left';ctx.textBaseline='alphabetic';
+    }
+  }
+}
+
+function drawCP(p,id){
+  ctx.beginPath();ctx.arc(p.x,p.y,CPR,0,Math.PI*2);
+  ctx.fillStyle=id==='cp1'?'#ffcc44':'#ff8844';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=1;ctx.stroke();
+}
+
+function drawWaypoints(){
+  const pts=wps();
+  pts.forEach((wp,i)=>{
+    const p=f2c(wp.x,wp.y);const isSel=i===selIdx;const r=isSel?PR+3:PR;
+    const hr=wp.heading*Math.PI/180;
+    if(isSel){
+      ctx.strokeStyle='rgba(255,220,80,0.18)';ctx.lineWidth=1;ctx.setLineDash([2,2]);
+      ctx.beginPath();ctx.arc(p.x,p.y,HR,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+      const hh=headingHandlePos(wp);
+      ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(hh.x,hh.y);
+      ctx.strokeStyle='#ffdd55';ctx.lineWidth=2;ctx.stroke();
+      ctx.beginPath();ctx.arc(hh.x,hh.y,5,0,Math.PI*2);
+      ctx.fillStyle='#ffdd55';ctx.fill();ctx.strokeStyle='rgba(255,255,255,0.8)';ctx.lineWidth=1.5;ctx.stroke();
+    } else {
+      ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(p.x+Math.cos(hr)*13,p.y-Math.sin(hr)*13);
+      ctx.strokeStyle='rgba(255,220,80,0.65)';ctx.lineWidth=1.5;ctx.stroke();
+    }
+    ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);
+    ctx.fillStyle=i===0?'#22cc66':i===pts.length-1?'#ee4444':isSel?'#5599ff':'#3366cc';
+    ctx.fill();ctx.strokeStyle='rgba(255,255,255,0.7)';ctx.lineWidth=isSel?2:1;ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font=`bold ${isSel?11:9}px JetBrains Mono, monospace`;
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(i+1,p.x,p.y);
+    ctx.textAlign='left';ctx.textBaseline='alphabetic';
+    if(wp.action&&wp.action!=='none'){
+      ctx.fillStyle='#EF9F27';ctx.beginPath();ctx.arc(p.x+r,p.y-r,4,0,Math.PI*2);ctx.fill();
+    }
+  });
+}
+
+function render(){
+  if(!ctx)return;
+  drawField();drawPaths();drawWaypoints();
+  renderChainTabs();renderWpList();renderDetail();renderCode();
+}
+
+function getHitWp(cx,cy){
+  const pts=wps();
+  for(let i=pts.length-1;i>=0;i--){
+    const p=f2c(pts[i].x,pts[i].y);
+    if(Math.sqrt((cx-p.x)**2+(cy-p.y)**2)<PR+6)return i;
+  }return -1;
+}
+function getHitCP(cx,cy){
+  if(selIdx===null||selIdx<1)return null;
+  const wp=wps()[selIdx];if(wp.type!=='Curve')return null;
+  for(const cp of [{id:'cp1',x:wp.cpx,y:wp.cpy},{id:'cp2',x:wp.cp2x,y:wp.cp2y}]){
+    const p=f2c(cp.x,cp.y);
+    if(Math.sqrt((cx-p.x)**2+(cy-p.y)**2)<CPR+6)return cp.id;
+  }return null;
+}
+
+function onDown(e){
+  const r=canvas.getBoundingClientRect();
+  const cx=e.clientX-r.left,cy=e.clientY-r.top;
+  if(tool==='add'){const f=c2f(cx,cy);addWaypoint(f.x,f.y);return;}
+  if(selIdx!==null&&wps()[selIdx]&&isNearHeadingHandle(cx,cy,wps()[selIdx])){
+    dragHeading=true;dragging=true;return;
+  }
+  const cp=getHitCP(cx,cy);
+  if(cp){selCP=cp;dragging=true;dragCP=cp;return;}
+  const idx=getHitWp(cx,cy);
+  if(idx>=0){selIdx=idx;selCP=null;dragging=true;dragIdx=idx;render();}
+  else{selIdx=null;selCP=null;render();}
+}
+
+function onMove(e){
+  const r=canvas.getBoundingClientRect();
+  const cx=e.clientX-r.left,cy=e.clientY-r.top;
+  const f=c2f(cx,cy);
+  document.getElementById('hud').textContent=`x: ${rnd1(f.x)}"  y: ${rnd1(f.y)}"`;
+  if(dragging&&dragHeading&&selIdx!==null){
+    const wp=wps()[selIdx];const p=f2c(wp.x,wp.y);
+    wp.heading=Math.round(Math.atan2(-(cy-p.y),cx-p.x)*180/Math.PI);
+    document.getElementById('hud-heading').textContent=`heading: ${wp.heading}°`;
+    render();return;
+  }
+  if(dragging&&dragCP&&selIdx!==null){
+    const wp=wps()[selIdx];
+    if(dragCP==='cp1'){wp.cpx=rnd1(f.x);wp.cpy=rnd1(f.y);}
+    else{wp.cp2x=rnd1(f.x);wp.cp2y=rnd1(f.y);}
+    render();return;
+  }
+  if(dragging&&dragIdx!==null){wps()[dragIdx].x=rnd1(f.x);wps()[dragIdx].y=rnd1(f.y);render();return;}
+  if(selIdx!==null&&wps()[selIdx]){
+    if(isNearHeadingHandle(cx,cy,wps()[selIdx])||getHitCP(cx,cy)||getHitWp(cx,cy)>=0)canvas.style.cursor='grab';
+    else canvas.style.cursor=tool==='add'?'crosshair':'default';
+  } else canvas.style.cursor=tool==='add'?'crosshair':'default';
+}
+
+function onUp(){
+  dragging=false;dragIdx=null;dragCP=null;dragHeading=false;
+  document.getElementById('hud-heading').textContent='';
+}
+function onDbl(e){
+  const r=canvas.getBoundingClientRect();
+  const idx=getHitWp(e.clientX-r.left,e.clientY-r.top);
+  if(idx>=0)deleteWp(idx);
+}
+
+function addWaypoint(x,y){
+  if(x===undefined){x=24+Math.random()*96;y=24+Math.random()*96;}
+  const pts=wps();const lastH=pts.length>0?pts[pts.length-1].heading:0;
+  const mx=pts.length>0?(pts[pts.length-1].x+x)/2:x;
+  const my=pts.length>0?(pts[pts.length-1].y+y)/2+12:y+12;
+  pts.push({x:rnd1(x),y:rnd1(y),heading:lastH,type:'Line',speed:'normal',action:'none',actionTiming:'before',cpx:rnd1(mx),cpy:rnd1(my),cp2x:rnd1((mx+x)/2),cp2y:rnd1((my+y)/2)});
+  selIdx=pts.length-1;render();
+}
+function deleteWp(i){if(i===undefined)i=selIdx;if(i===null||i===undefined)return;wps().splice(i,1);selIdx=null;render();}
+function clearChain(){wps().length=0;selIdx=null;render();}
+function updateWp(key,val){if(selIdx!==null){wps()[selIdx][key]=val;render();}}
+function setSpeed(spd){updateWp('speed',spd);}
+function moveWp(dir){
+  if(selIdx===null)return;const ni=selIdx+dir;
+  if(ni<1||ni>=wps().length)return;
+  const pts=wps();[pts[selIdx],pts[ni]]=[pts[ni],pts[selIdx]];selIdx=ni;render();
+}
+function addChain(){chains.push({name:'chain'+(chains.length+1),wps:[]});activeChain=chains.length-1;selIdx=null;render();}
+function switchChain(i){activeChain=i;selIdx=null;render();}
+function setTool(t){
+  tool=t;
+  document.getElementById('tool-select-btn').classList.toggle('active',t==='select');
+  document.getElementById('tool-add-btn').classList.toggle('active',t==='add');
+  canvas.style.cursor=t==='add'?'crosshair':'default';
+  document.getElementById('mode-hint').textContent=t==='add'?'click to place — dbl-click point to delete':'select / drag — yellow handle rotates heading';
+}
+function saveJSON(){
+  const a=document.createElement('a');
+  a.href='data:application/json,'+encodeURIComponent(JSON.stringify({chains},null,2));
+  a.download='pedro-paths.json';a.click();
+}
+function loadJSON(e){
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=ev=>{try{const d=JSON.parse(ev.target.result);if(d.chains){chains=d.chains;activeChain=0;selIdx=null;render();}}catch{}};
+  rd.readAsText(f);e.target.value='';
+}
+function loadMapImage(e){
+  const f=e.target.files[0];if(!f)return;
+  const rd=new FileReader();
+  rd.onload=ev=>{const img=new Image();img.onload=()=>{mapImg=img;render();};img.src=ev.target.result;};
+  rd.readAsDataURL(f);e.target.value='';
+}
+function copyCode(){
+  navigator.clipboard.writeText(document.getElementById('code-out').innerText).catch(()=>{});
+}
+
+function renderChainTabs(){
+  document.getElementById('chain-tabs').innerHTML=
+    chains.map((c,i)=>`<div class="chain-tab ${i===activeChain?'active':''}" onclick="switchChain(${i})">${c.name}</div>`).join('')+
+    `<div class="chain-tab add-tab" onclick="addChain()">+ chain</div>`;
+}
+
+function spdBadge(spd){
+  if(!spd||spd==='normal')return'';
+  return`<span class="spd-badge spd-${spd}">${spd}</span>`;
+}
+
+function renderWpList(){
+  const el=document.getElementById('wp-scroll'),pts=wps();
+  if(!pts.length){el.innerHTML='<div style="font-size:11px;color:var(--text2);padding:8px;font-family:var(--mono)">no waypoints yet</div>';return;}
+  el.innerHTML=pts.map((wp,i)=>`
+    <div class="wp-card ${i===selIdx?'sel':''}" onclick="selIdx=${i};render()">
+      <div class="wt">${i===0?'start':i===pts.length-1?'end':'p'+i}
+        <span style="font-weight:400;font-size:10px">${wp.type.toLowerCase()}${wp.action!=='none'?`<span class="act-badge">${wp.action.replace('()','')}</span>`:''}${spdBadge(wp.speed)}</span>
+      </div>
+      <div class="ws">(${wp.x}", ${wp.y}") · ${wp.heading}°</div>
+    </div>`).join('');
+}
+
+function renderDetail(){
+  const el=document.getElementById('detail-inner');
+  if(selIdx===null||!wps()[selIdx]){el.innerHTML='<span style="color:var(--text2)">select a point</span>';return;}
+  const wp=wps()[selIdx];const spd=wp.speed||'normal';
+  el.innerHTML=`
+    <div class="dr"><label>x (in)</label><input type="number" value="${wp.x}" step="0.5" onchange="updateWp('x',parseFloat(this.value))"></div>
+    <div class="dr"><label>y (in)</label><input type="number" value="${wp.y}" step="0.5" onchange="updateWp('y',parseFloat(this.value))"></div>
+    <div class="dr"><label>heading°</label><input type="number" value="${wp.heading}" step="5" onchange="updateWp('heading',parseFloat(this.value))"></div>
+    <div class="dr"><label>seg type</label><select onchange="updateWp('type',this.value)">${['Line','Curve'].map(t=>`<option ${wp.type===t?'selected':''}>${t}</option>`).join('')}</select></div>
+    <div class="dr"><label>speed</label>
+      <div class="spd-group">
+        <div class="spd-opt ${spd==='slow'?'sel-slow':''}" onclick="setSpeed('slow')">slow</div>
+        <div class="spd-opt ${spd==='normal'?'sel-normal':''}" onclick="setSpeed('normal')">normal</div>
+        <div class="spd-opt ${spd==='fast'?'sel-fast':''}" onclick="setSpeed('fast')">fast</div>
+      </div>
+    </div>
+    <div class="dr"><label>action</label><select onchange="updateWp('action',this.value)">${ACTIONS.map(a=>`<option ${wp.action===a?'selected':''}>${a}</option>`).join('')}</select></div>
+    <div class="dr"><label>custom fn</label><input type="text" placeholder="myMethod()" value="${wp.customFn||''}" onchange="updateWp('customFn',this.value)"></div>
+    ${(wp.action!=='none'||wp.customFn)?`<div class="dr"><label>timing</label><select onchange="updateWp('actionTiming',this.value)"><option ${wp.actionTiming==='before'?'selected':''}>before</option><option ${wp.actionTiming==='after'?'selected':''}>after</option></select></div>`:''}
+    <div class="detail-btns">
+      ${selIdx>0?`<button class="d-btn" onclick="moveWp(-1)">↑</button><button class="d-btn" onclick="moveWp(1)">↓</button>`:''}
+      <button class="d-btn del" onclick="deleteWp()">delete</button>
+    </div>`;
+}
+
+function generateCode(){
+  const pts=wps();
+  if(pts.length<2)return'<span class="cm">// add 2+ waypoints to generate code</span>';
+  const name=document.getElementById('chain-name').value||'myPathChain';
+  const L=[];
+  L.push(`<span class="cm">// Pedro Path Planner — auto-generated</span>`);
+  L.push(`<span class="cm">// ${pts.length} waypoints · ${pts.length-1} segments</span>\n`);
+  pts.forEach((wp,i)=>L.push(`<span class="tp">Point</span> p${i} = <span class="kw">new</span> <span class="tp">Point</span>(<span class="nm">${wp.x}</span>, <span class="nm">${wp.y}</span>, <span class="tp">Point</span>.CARTESIAN);`));
+  L.push('');
+  for(let i=1;i<pts.length;i++){
+    const wp=pts[i],prev=pts[i-1];const spd=wp.speed||'normal';
+    if(wp.type==='Curve'){
+      L.push(`<span class="tp">Path</span> path${i} = <span class="kw">new</span> <span class="tp">Path</span>(<span class="kw">new</span> <span class="tp">BezierCurve</span>(`);
+      L.push(`    p${i-1}, <span class="kw">new</span> <span class="tp">Point</span>(<span class="nm">${wp.cpx}</span>, <span class="nm">${wp.cpy}</span>, <span class="tp">Point</span>.CARTESIAN),`);
+      L.push(`    <span class="kw">new</span> <span class="tp">Point</span>(<span class="nm">${wp.cp2x}</span>, <span class="nm">${wp.cp2y}</span>, <span class="tp">Point</span>.CARTESIAN), p${i}));`);
+    } else {
+      L.push(`<span class="tp">Path</span> path${i} = <span class="kw">new</span> <span class="tp">Path</span>(<span class="kw">new</span> <span class="tp">BezierLine</span>(p${i-1}, p${i}));`);
+    }
+    L.push(`path${i}.<span class="fn">setLinearHeadingInterpolation</span>(<span class="nm">${prev.heading}</span>, <span class="nm">${wp.heading}</span>);`);
+    if(spd!=='normal')L.push(`path${i}.<span class="fn">setPathEndTimeoutConstraint</span>(<span class="nm">0.5</span>);`);
+    if(spd==='slow')L.push(`path${i}.<span class="fn">setZeroPowerAccelerationMultiplier</span>(<span class="nm">4</span>);`);
+    L.push('');
+  }
+  L.push(`<span class="tp">PathChain</span> ${name} = follower.<span class="fn">pathBuilder</span>()`);
+  for(let i=1;i<pts.length;i++){
+    const wp=pts[i];const spd=wp.speed||'normal';const spdVal=SPEED_VALS[spd];
+    L.push(`    .<span class="fn">addPath</span>(path${i})`);
+    L.push(`    .<span class="fn">setPathEndVelocityConstraint</span>(<span class="nm">${spdVal}</span>)`);
+    const fn=wp.customFn||(wp.action!=='none'?wp.action:null);
+    if(fn){const t=wp.actionTiming==='before'?'0.0':'1.0';L.push(`    .<span class="fn">addParametricCallback</span>(<span class="nm">${t}</span>, () -> <span class="fn">${fn}</span>)`);}
+  }
+  L[L.length-1]+=' .build();';
+  L.push('\n<span class="cm">// In your run loop:</span>');
+  L.push(`follower.<span class="fn">followPath</span>(${name}, <span class="kw">true</span>);`);
+  return L.join('\n');
+}
+function renderCode(){document.getElementById('code-out').innerHTML=generateCode();}
+
+document.addEventListener('DOMContentLoaded',()=>{
+  initCanvas();setTool('select');
+  chains[0].wps=[
+    {x:12,y:12,heading:0,type:'Line',speed:'normal',action:'none',actionTiming:'before',cpx:24,cpy:30,cp2x:36,cp2y:36},
+    {x:60,y:40,heading:45,type:'Curve',speed:'fast',action:'none',actionTiming:'before',cpx:30,cpy:50,cp2x:50,cp2y:42},
+    {x:110,y:100,heading:90,type:'Curve',speed:'slow',action:'raiseArm()',actionTiming:'before',cpx:90,cpy:60,cp2x:105,cp2y:80},
+  ];
+  selIdx=null;render();
+  document.getElementById('chain-name').addEventListener('input',render);
+  document.getElementById('alliance').addEventListener('change',render);
+});
+</script>
+</body>
+</html>
