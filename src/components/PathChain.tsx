@@ -6,38 +6,55 @@ import { pointToCanvas } from '../utils/coordinates';
 interface PathChainProps {
   pathChain: PathChainType;
   canvasSize: number;
-  selectedWaypointId: string | null;
+  selectedPoseId: string | null;
   selectedPathId: string | null;
-  onWaypointDragMove: (id: string, x: number, y: number) => void;
-  onWaypointClick: (id: string) => void;
+  onPoseDragMove: (id: string, x: number, y: number) => void;
+  onPoseClick: (id: string, e?: any) => void;
+  onPathClick?: (id: string) => void;
+  onHeadingChange?: (id: string, heading: number) => void;
   onControlPointDragMove?: (pathId: string, cpIndex: 1 | 2, x: number, y: number) => void;
   selectingPathEndpoint?: boolean;
-  onPathEndpointSelect?: (waypointId: string) => void;
+  onPathEndpointSelect?: (poseId: string) => void;
 }
 
 export const PathChainComponent = ({
   pathChain,
   canvasSize,
-  selectedWaypointId,
+  selectedPoseId,
   selectedPathId,
-  onWaypointDragMove,
-  onWaypointClick,
+  onPoseDragMove,
+  onPoseClick,
+  onPathClick,
+  onHeadingChange,
   onControlPointDragMove,
   selectingPathEndpoint,
   onPathEndpointSelect,
 }: PathChainProps) => {
-  // Render path lines between waypoints
+  // Render path lines between poses
   const pathLines = pathChain.paths.map((path) => {
-    const startWp = pathChain.waypoints.find(w => w.id === path.startWaypointId);
-    const endWp = pathChain.waypoints.find(w => w.id === path.endWaypointId);
+    const startPose = pathChain.poses.find(w => w.id === path.startPoseId);
+    const endPose = pathChain.poses.find(w => w.id === path.endPoseId);
 
-    if (!startWp || !endWp) return null;
+    if (!startPose || !endPose) return null;
 
-    const startCanvas = pointToCanvas({ x: startWp.x, y: startWp.y }, canvasSize);
-    const endCanvas = pointToCanvas({ x: endWp.x, y: endWp.y }, canvasSize);
+    const startCanvas = pointToCanvas({ x: startPose.x, y: startPose.y }, canvasSize);
+    const endCanvas = pointToCanvas({ x: endPose.x, y: endPose.y }, canvasSize);
 
-    // Use the ending waypoint's color for the path
-    const pathColor = endWp.color || '#8b5cf6';
+    // Use the ending pose's color for the path
+    const pathColor = endPose.color || '#8b5cf6';
+    const isSelected = selectedPathId === path.id;
+
+    const lineProps = {
+      key: `path-${path.id}`,
+      stroke: pathColor,
+      strokeWidth: isSelected ? 4 : 2,
+      opacity: isSelected ? 1 : 0.8,
+      hitStrokeWidth: 20, // Make it easier to click
+      onClick: (e: any) => {
+        e.cancelBubble = true;
+        if (onPathClick) onPathClick(path.id);
+      },
+    };
 
     if (path.type === 'curve' && path.controlPoint1 && path.controlPoint2) {
       // Render bezier curve
@@ -46,11 +63,8 @@ export const PathChainComponent = ({
 
       return (
         <Line
-          key={`path-${path.id}`}
+          {...lineProps}
           points={[startCanvas.x, startCanvas.y, cp1Canvas.x, cp1Canvas.y, cp2Canvas.x, cp2Canvas.y, endCanvas.x, endCanvas.y]}
-          stroke={pathColor}
-          strokeWidth={2}
-          opacity={0.8}
           bezier
         />
       );
@@ -58,11 +72,8 @@ export const PathChainComponent = ({
       // Render straight line
       return (
         <Line
-          key={`path-${path.id}`}
+          {...lineProps}
           points={[startCanvas.x, startCanvas.y, endCanvas.x, endCanvas.y]}
-          stroke={pathColor}
-          strokeWidth={2}
-          opacity={0.8}
         />
       );
     }
@@ -76,12 +87,12 @@ export const PathChainComponent = ({
     const cp1Canvas = pointToCanvas(path.controlPoint1, canvasSize);
     const cp2Canvas = pointToCanvas(path.controlPoint2, canvasSize);
 
-    const startWp = pathChain.waypoints.find(w => w.id === path.startWaypointId);
-    const endWp = pathChain.waypoints.find(w => w.id === path.endWaypointId);
-    if (!startWp || !endWp) return [];
+    const startPose = pathChain.poses.find(w => w.id === path.startPoseId);
+    const endPose = pathChain.poses.find(w => w.id === path.endPoseId);
+    if (!startPose || !endPose) return [];
 
-    const startCanvas = pointToCanvas({ x: startWp.x, y: startWp.y }, canvasSize);
-    const endCanvas = pointToCanvas({ x: endWp.x, y: endWp.y }, canvasSize);
+    const startCanvas = pointToCanvas({ x: startPose.x, y: startPose.y }, canvasSize);
+    const endCanvas = pointToCanvas({ x: endPose.x, y: endPose.y }, canvasSize);
 
     return [
       // Control point 1
@@ -101,6 +112,12 @@ export const PathChainComponent = ({
           stroke="#ff8888"
           strokeWidth={2}
           draggable
+          dragBoundFunc={(pos) => {
+            return {
+              x: Math.max(0, Math.min(canvasSize, pos.x)),
+              y: Math.max(0, Math.min(canvasSize, pos.y)),
+            };
+          }}
           onDragMove={(e) => {
             if (onControlPointDragMove) {
               onControlPointDragMove(path.id, 1, e.target.x(), e.target.y());
@@ -131,6 +148,12 @@ export const PathChainComponent = ({
           stroke="#ff8888"
           strokeWidth={2}
           draggable
+          dragBoundFunc={(pos) => {
+            return {
+              x: Math.max(0, Math.min(canvasSize, pos.x)),
+              y: Math.max(0, Math.min(canvasSize, pos.y)),
+            };
+          }}
           onDragMove={(e) => {
             if (onControlPointDragMove) {
               onControlPointDragMove(path.id, 2, e.target.x(), e.target.y());
@@ -155,15 +178,16 @@ export const PathChainComponent = ({
       {/* Control points for curves */}
       {controlPoints}
 
-      {/* Waypoints */}
-      {pathChain.waypoints.map((waypoint) => (
+      {/* Poses */}
+      {pathChain.poses.map((pose) => (
         <ControlPoint
-          key={waypoint.id}
-          point={waypoint}
+          key={pose.id}
+          point={pose}
           canvasSize={canvasSize}
-          isSelected={selectedWaypointId === waypoint.id}
-          onDragMove={onWaypointDragMove}
-          onClick={onWaypointClick}
+          isSelected={selectedPoseId === pose.id}
+          onDragMove={onPoseDragMove}
+          onClick={onPoseClick}
+          onHeadingChange={onHeadingChange}
           selectingPathEndpoint={selectingPathEndpoint}
           onPathEndpointSelect={onPathEndpointSelect}
         />

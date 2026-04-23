@@ -7,28 +7,28 @@ interface CodeGeneratorProps {
 
 export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
   const generatedCode = useMemo(() => {
-    const waypoints = pathChain.waypoints;
+    const poses = pathChain.poses;
     const paths = pathChain.paths;
 
     const formatHeading = (value?: number) => value !== undefined ? `Math.toRadians(${value.toFixed(1)})` : 'Math.toRadians(0.0)';
 
-    if (waypoints.length < 2) {
-      return '// Add 2+ waypoints to generate code';
+    if (poses.length < 2) {
+      return '// Add 2+ poses to generate code';
     }
 
     const lines: string[] = [];
 
-    const waypointVarNames: Record<string, string> = {};
-    waypoints.forEach((wp, i) => {
-      const varName = (wp.name || `p${i}`).replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
-      waypointVarNames[wp.id] = varName;
+    const poseVarNames: Record<string, string> = {};
+    poses.forEach((wp, i) => {
+      const varName = (wp.name || `p${i}`).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
+      poseVarNames[wp.id] = varName;
       const headingValue = formatHeading(wp.heading);
       lines.push(`Pose ${varName} = new Pose(${wp.x.toFixed(1)}, ${wp.y.toFixed(1)}, ${headingValue});`);
     });
     lines.push('');
 
     paths.forEach((path, pathIndex) => {
-      const pathVarName = (path.name || `path${pathIndex}`).replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
+      const pathVarName = (path.name || `path${pathIndex}`).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
       lines.push(`PathChain ${pathVarName};`);
     });
     lines.push('');
@@ -36,12 +36,12 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
     lines.push('public void buildPaths(Follower follower) {');
 
     paths.forEach((path, pathIndex) => {
-      const startWp = waypoints.find(w => w.id === path.startWaypointId);
-      const endWp = waypoints.find(w => w.id === path.endWaypointId);
-      if (!startWp || !endWp) return;
+      const startPose = poses.find(w => w.id === path.startPoseId);
+      const endPose = poses.find(w => w.id === path.endPoseId);
+      if (!startPose || !endPose) return;
 
-      const startName = waypointVarNames[startWp.id];
-      const endName = waypointVarNames[endWp.id];
+      const startName = poseVarNames[startPose.id];
+      const endName = poseVarNames[endPose.id];
       const pathVarName = (path.name || `path${pathIndex}`).replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
 
       const headingInterp = (() => {
@@ -54,10 +54,10 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
 
         const startHeading = path.startHeadingOverride !== undefined
           ? formatHeading(path.startHeadingOverride)
-          : formatHeading(startWp.heading);
+          : `${startName.replace(/[^a-zA-Z0-9_]/g, '_').toLocaleLowerCase().replace(/^(\d)/, '_$1')}.getHeading()`;
         const endHeading = path.endHeadingOverride !== undefined
           ? formatHeading(path.endHeadingOverride)
-          : formatHeading(endWp.heading);
+          : `${endPose.name.replace(/[^a-zA-Z0-9_]/g, '_').toLocaleLowerCase().replace(/^(\d)/, '_$1')}.getHeading()`;
 
         return `setLinearHeadingInterpolation(${startHeading}, ${endHeading})`;
       })();
@@ -71,7 +71,6 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
         lines.push(`                    ${endName}`);
         lines.push(`            )`);
         lines.push(`    ).${headingInterp}`);
-        lines.push(`    .build();`);
       } else {
         lines.push(`    ${pathVarName} = follower.pathBuilder().addPath(`);
         lines.push(`            new BezierLine(`);
@@ -79,12 +78,55 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
         lines.push(`                    ${endName}`);
         lines.push(`            )`);
         lines.push(`    ).${headingInterp}`);
-        lines.push(`    .build();`);
       }
+
+      // Path constraints
+      if (path.timeoutConstraint !== undefined && path.timeoutConstraint > 0) {
+        lines.push(`    .setTimeoutConstraint(${Math.round(path.timeoutConstraint)})`);
+      }
+      if (path.tValueConstraint !== undefined && path.tValueConstraint > 0 && path.tValueConstraint <= 1) {
+        lines.push(`    .setTValueConstraint(${path.tValueConstraint.toFixed(2)})`);
+      }
+      if (path.velocityConstraint !== undefined && path.velocityConstraint > 0) {
+        lines.push(`    .setVelocityConstraint(${path.velocityConstraint.toFixed(1)})`);
+      }
+      if (path.translationalConstraint !== undefined && path.translationalConstraint > 0) {
+        lines.push(`    .setTranslationalConstraint(${path.translationalConstraint.toFixed(1)})`);
+      }
+      if (path.brakingStrength !== undefined) {
+        lines.push(`    .setHeadingConstraint(${path.brakingStrength.toFixed(1)})`);
+      }
+
+      // Callbacks
+      if (path.callbacks && path.callbacks.length > 0) {
+        path.callbacks.forEach(callback => {
+          const actionCode = callback.action !== 'none' ? `// ${callback.action}` : '';
+
+          if (callback.parametricPercent !== undefined) {
+            lines.push(`    .addParametricCallback(${callback.parametricPercent.toFixed(2)}, () -> {${actionCode ? ' ' + actionCode : ''}})`);
+      }
+
+          if (callback.temporalMillis !== undefined) {
+            lines.push(`    .addTemporalCallback(${Math.round(callback.temporalMillis)}, () -> {${actionCode ? ' ' + actionCode : ''}})`);
+          }
+
+          if (callback.poseCallback) {
+            const poseGuess = callback.poseGuess !== undefined ? `, ${callback.poseGuess.toFixed(2)}` : '';
+            lines.push(`    .addPoseCallback(new Pose(${callback.poseCallback.x.toFixed(1)}, ${callback.poseCallback.y.toFixed(1)}, ${formatHeading(callback.poseCallback.heading)})${poseGuess}, () -> {${actionCode ? ' ' + actionCode : ''}})`);
+          }
+
+          if (callback.customCallbackCode) {
+            lines.push(`    .addCustomCallback(() -> {${callback.customCallbackCode}})`);
+          }
+        });
+      }
+
+      lines.push(`    .build();`);
       lines.push('');
     });
 
     lines.push('}');
+
     return lines.join('\n');
   }, [pathChain]);
 
@@ -97,8 +139,22 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
       .replace(/[^a-zA-Z0-9]/g, '')
       .replace(/^(\d)/, 'Path_$1') || 'AutoPath';
 
-    const code = generatedCode;
-    const blob = new Blob([code], { type: 'text/java' });
+    const fullCode = `package org.firstinspires.ftc.teamcode;
+
+import com.pedro-pathing.follower.Follower;
+import com.pedro-pathing.constants.FollowerConstants;
+import com.pedro-pathing.pathing.BezierCurve;
+import com.pedro-pathing.pathing.BezierLine;
+import com.pedro-pathing.pathing.Path;
+import com.pedro-pathing.pathing.PathChain;
+import com.pedro-pathing.util.Pose;
+
+public class ${className} {
+    ${generatedCode.replace(/\n/g, '\n    ')}
+}
+`;
+
+    const blob = new Blob([fullCode], { type: 'text/java' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -128,7 +184,7 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
       </div>
 
       <div className="text-xs text-gray-400 font-mono">
-        <span>{pathChain.paths.length} path(s) · {pathChain.waypoints.length} waypoint(s)</span>
+        <span>{pathChain.paths.length} path(s) · {pathChain.poses.length} pose(s)</span>
       </div>
 
       <pre className="bg-gray-950 border border-gray-800 rounded-lg p-4 text-xs text-gray-300 overflow-auto max-h-[600px] font-mono leading-relaxed">

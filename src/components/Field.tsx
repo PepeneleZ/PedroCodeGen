@@ -7,101 +7,106 @@ import { PathChainComponent } from './PathChain';
 interface FieldProps {
   pathChain: PathChain;
   onPathChainChange: (pathChain: PathChain) => void;
-  selectedWaypointId: string | null;
-  onSelectedWaypointChange: (id: string | null) => void;
+  selectedPoseId: string | null;
+  onSelectedPoseChange: (id: string | null, e?: any) => void;
   selectedPathId: string | null;
+  onSelectedPathChange?: (id: string | null) => void;
   onControlPointDragMove?: (pathId: string, cpIndex: 1 | 2, x: number, y: number) => void;
+  onPoseHeadingChange?: (id: string, heading: number) => void;
   mapImage: HTMLImageElement | null;
   selectingPathEndpoint?: boolean;
-  onPathEndpointSelect?: (waypointId: string) => void;
-  onCreateWaypoint?: (x: number, y: number) => void;
+  onPathEndpointSelect?: (poseId: string) => void;
+  onCreatePose?: (x: number, y: number, createPath: boolean) => void;
+  onPathCreate?: (endPoseId: string) => void;
 }
 
-const CANVAS_SIZE = 650;
+export const CANVAS_SIZE = 650;
 
 export const Field = ({
   pathChain,
   onPathChainChange,
-  selectedWaypointId,
-  onSelectedWaypointChange,
+  selectedPoseId,
+  onSelectedPoseChange,
   selectedPathId,
+  onSelectedPathChange,
   onControlPointDragMove,
+  onPoseHeadingChange,
   mapImage,
   selectingPathEndpoint,
   onPathEndpointSelect,
-  onCreateWaypoint,
+  onCreatePose,
+  onPathCreate,
 }: FieldProps) => {
+
   const stageRef = useRef<any>(null);
 
-  // Check if click is near a waypoint
-  const getWaypoints = useCallback(() => {
-    return pathChain.waypoints;
-  }, [pathChain.waypoints]);
+  // Check if click is near a pose
+  const getPoses = useCallback(() => {
+    return pathChain.poses;
+  }, [pathChain.poses]);
 
-  // Handle canvas click to select a waypoint
+  // Handle canvas click to select/create a pose
   const handleStageClick = useCallback(
-    () => {
+    (e: any) => {
       const stage = stageRef.current;
       if (!stage) return;
 
       const pos = stage.getPointerPosition();
       if (!pos) return;
 
-      // Check if we clicked on a waypoint first
-      const waypoints = getWaypoints();
-      const clickedWaypoint = waypoints.find(w => {
+      // Check if we clicked on a pose first
+      const poses = getPoses();
+      const clickedPose = poses.find(w => {
         const canvasPt = pointToCanvas({ x: w.x, y: w.y }, CANVAS_SIZE);
         const dist = Math.sqrt((pos.x - canvasPt.x) ** 2 + (pos.y - canvasPt.y) ** 2);
         return dist < 14;
       });
 
-      // Only handle waypoint selection
-      if (clickedWaypoint) {
-        onSelectedWaypointChange(clickedWaypoint.id);
+      // Handle Ctrl+Click or Shift+Click on empty space: Create new pose
+      if ((e.evt.ctrlKey || (e.evt.shiftKey && !clickedPose)) && onCreatePose) {
+        const fieldPoint = canvasToPoint(pos, CANVAS_SIZE);
+        onCreatePose(
+          clampToFieldX(fieldPoint.x),
+          clampToFieldY(fieldPoint.y),
+          e.evt.shiftKey
+        );
+        return;
+      }
+
+      // Handle Shift+Click: Create path
+      if (e.evt.shiftKey && clickedPose && onPathCreate) {
+        onPathCreate(clickedPose.id);
+        return;
+      }
+
+      // Only handle pose selection
+      if (clickedPose) {
+        onSelectedPoseChange(clickedPose.id, e);
+      } else {
+        onSelectedPoseChange(null, e);
       }
     },
-    [pathChain, onPathChainChange, onSelectedWaypointChange, getWaypoints],
+    [pathChain, onPathChainChange, onSelectedPoseChange, getPoses, onCreatePose, onPathCreate],
   );
 
-  // Handle right-click to create waypoint
-  const handleStageContextMenu = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      if (!onCreateWaypoint) return;
-
-      const stage = stageRef.current;
-      if (!stage) return;
-
-      const pos = stage.getPointerPosition();
-      if (!pos) return;
-
-      const fieldPoint = canvasToPoint(pos, CANVAS_SIZE);
-      onCreateWaypoint(
-        clampToFieldX(fieldPoint.x),
-        clampToFieldY(fieldPoint.y)
-      );
-    },
-    [onCreateWaypoint],
-  );
-
-  // Handle waypoint drag
-  const handleWaypointDragMove = useCallback(
+  // Handle pose drag
+  const handlePoseDragMove = useCallback(
     (id: string, x: number, y: number) => {
       const fieldPoint = canvasToPoint({ x, y }, CANVAS_SIZE);
 
-      const updatedWaypoints = pathChain.waypoints.map((wp) =>
-        wp.id === id
+      const updatedPoses = pathChain.poses.map((p) =>
+        p.id === id
           ? {
-              ...wp,
+              ...p,
               x: clampToFieldX(fieldPoint.x),
               y: clampToFieldY(fieldPoint.y),
             }
-          : wp,
+          : p,
       );
 
       onPathChainChange({
         ...pathChain,
-        waypoints: updatedWaypoints,
+        poses: updatedPoses,
       });
     },
     [pathChain, onPathChainChange],
@@ -141,7 +146,7 @@ export const Field = ({
 
   return (
     <div className="flex flex-col items-center gap-2">
-      <div style={{ position: 'relative' }} onContextMenu={handleStageContextMenu}>
+      <div style={{ position: 'relative' }}>
         <Stage
           ref={stageRef}
           width={CANVAS_SIZE}
@@ -182,21 +187,18 @@ export const Field = ({
             <PathChainComponent
               pathChain={pathChain}
               canvasSize={CANVAS_SIZE}
-              selectedWaypointId={selectedWaypointId}
+              selectedPoseId={selectedPoseId}
               selectedPathId={selectedPathId}
-              onWaypointDragMove={handleWaypointDragMove}
-              onWaypointClick={onSelectedWaypointChange}
+              onPoseDragMove={handlePoseDragMove}
+              onPoseClick={onSelectedPoseChange}
+              onPathClick={onSelectedPathChange}
+              onHeadingChange={onPoseHeadingChange}
               onControlPointDragMove={onControlPointDragMove}
               selectingPathEndpoint={selectingPathEndpoint}
               onPathEndpointSelect={onPathEndpointSelect}
             />
           </Layer>
         </Stage>
-
-        {/* Mode hint */}
-        <div className="absolute top-2 left-2 text-xs text-gray-500 bg-gray-900/70 px-2 py-1 rounded border border-gray-700 font-mono">
-          Select/drag waypoints to set positions
-        </div>
       </div>
 
     </div>
