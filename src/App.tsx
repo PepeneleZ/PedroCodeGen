@@ -49,26 +49,22 @@ function App() {
     return () => window.removeEventListener('resize', updateCanvasSize);
   }, [updateCanvasSize]);
 
-  const activeChain = chains[activeChainIndex] || chains[0];
+  const { state: activeChain, set: setHistoryState, undo, redo, canUndo, canRedo } = useUndoRedo(activeChainIndex === 0 ? chains[0] : chains[activeChainIndex]);
+
+  useEffect(() => {
+    setChains(prev => prev.map((c, i) => i === activeChainIndex ? activeChain : c));
+  }, [activeChain, activeChainIndex]);
+
   const startPose = activeChain.startingPoseId
     ? activeChain.poses.find(w => w.id === activeChain.startingPoseId)
     : null;
   const additionalPoses = activeChain.poses.filter(w => w.id !== activeChain.startingPoseId);
-  const nextPathStartPose = activeChain.paths.length === 0
-    ? startPose
-    : activeChain.poses.find(w => w.id === activeChain.paths[activeChain.paths.length - 1]?.endPoseId);
-  const availablePathEndpoints = activeChain.poses.filter(
-    (w) => w.id !== nextPathStartPose?.id
-  );
-  void availablePathEndpoints;
-
-  const { undo, redo, canUndo, canRedo } = useUndoRedo(activeChain);
 
   const assignPoseColors = useCallback((poses: Pose[], paths: Path[], startingPoseId?: string): Pose[] => {
     if (!startingPoseId) return poses;
     const coloredPoses = poses.map(w => ({ ...w }));
     const startWp = coloredPoses.find(w => w.id === startingPoseId);
-    if (startWp) startWp.color = POSE_COLORS[0];
+    if (startWp) startWp.color = '#8b5cf6';
     const poseOrder: Pose[] = [startWp!];
     let currentPoseId = startingPoseId;
     for (const path of paths) {
@@ -85,8 +81,8 @@ function App() {
 
   const updateActiveChain = useCallback((updatedChain: PathChain) => {
     const coloredPoses = assignPoseColors(updatedChain.poses, updatedChain.paths, updatedChain.startingPoseId);
-    setChains(prev => prev.map((c, i) => i === activeChainIndex ? { ...updatedChain, poses: coloredPoses } : c));
-  }, [activeChainIndex, assignPoseColors]);
+    setHistoryState({ ...updatedChain, poses: coloredPoses });
+  }, [setHistoryState, assignPoseColors]);
 
   const selectedPose = activeChain.poses.find((w) => w.id === selectedPoseId);
   const selectedPath = activeChain.paths.find(p => p.id === selectedPathId);
@@ -257,7 +253,7 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
-      if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); redo(); }
+      if (e.ctrlKey && e.key === 'y') { e.preventDefault(); redo(); }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);

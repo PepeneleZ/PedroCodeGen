@@ -94,19 +94,13 @@ export const Field = ({
     (id: string, x: number, y: number) => {
       const fieldPoint = canvasToPoint({ x, y }, canvasSize);
 
-      const updatedPoses = pathChain.poses.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              x: clampToFieldX(fieldPoint.x),
-              y: clampToFieldY(fieldPoint.y),
-            }
-          : p,
-      );
-
       onPathChainChange({
         ...pathChain,
-        poses: updatedPoses,
+        poses: pathChain.poses.map((p) =>
+          p.id === id
+            ? { ...p, x: clampToFieldX(fieldPoint.x), y: clampToFieldY(fieldPoint.y) }
+            : p
+        ),
       });
     },
     [pathChain, onPathChainChange, canvasSize],

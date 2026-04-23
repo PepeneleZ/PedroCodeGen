@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
 import { PathChain } from '../types';
 
-const MAX_HISTORY = 50;
+const MAX_HISTORY = 200;
 
 interface HistoryState {
   past: PathChain[];
@@ -16,17 +16,10 @@ export const useUndoRedo = (initialState: PathChain) => {
     future: [],
   });
 
-  const set = useCallback((newPresent: PathChain, addToHistory: boolean = true) => {
+  const set = useCallback((newPresent: PathChain) => {
     setHistory((prev) => {
-      if (!addToHistory) {
-        return { ...prev, present: newPresent };
-      }
-
       const newPast = [...prev.past, prev.present];
-      // Keep history bounded
-      if (newPast.length > MAX_HISTORY) {
-        newPast.shift();
-      }
+      if (newPast.length > MAX_HISTORY) newPast.shift();
 
       return {
         past: newPast,
