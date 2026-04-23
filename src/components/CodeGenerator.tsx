@@ -54,10 +54,10 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
 
         const startHeading = path.startHeadingOverride !== undefined
           ? formatHeading(path.startHeadingOverride)
-          : `${startName.replace(/[^a-zA-Z0-9_]/g, '_').toLocaleLowerCase().replace(/^(\d)/, '_$1')}.getHeading()`;
+          : `${startName}.getHeading()`;
         const endHeading = path.endHeadingOverride !== undefined
           ? formatHeading(path.endHeadingOverride)
-          : `${endPose.name.replace(/[^a-zA-Z0-9_]/g, '_').toLocaleLowerCase().replace(/^(\d)/, '_$1')}.getHeading()`;
+          : `${endName}.getHeading()`;
 
         return `setLinearHeadingInterpolation(${startHeading}, ${endHeading})`;
       })();
@@ -104,7 +104,7 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
 
           if (callback.parametricPercent !== undefined) {
             lines.push(`    .addParametricCallback(${callback.parametricPercent.toFixed(2)}, () -> {${actionCode ? ' ' + actionCode : ''}})`);
-      }
+          }
 
           if (callback.temporalMillis !== undefined) {
             lines.push(`    .addTemporalCallback(${Math.round(callback.temporalMillis)}, () -> {${actionCode ? ' ' + actionCode : ''}})`);

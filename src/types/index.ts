@@ -12,6 +12,16 @@ export interface Pose {
   color?: string; // hex color
 }
 
+export interface Callback {
+  id: string;
+  action: string;
+  parametricPercent?: number;
+  temporalMillis?: number;
+  poseCallback?: Point & { heading?: number };
+  poseGuess?: number;
+  customCallbackCode?: string;
+}
+
 export interface Path {
   id: string;
   name?: string;
@@ -34,6 +44,8 @@ export interface Path {
   velocityConstraint?: number; // inches/second
   translationalConstraint?: number; // inches
   brakingStrength?: number; // 0.1-5.0
+  // Callbacks
+  callbacks?: Callback[];
 }
 
 export interface PathChain {

@@ -1,7 +1,6 @@
-import { Circle, Group, Line, Arrow } from 'react-konva';
+import { Circle, Group, Arrow } from 'react-konva';
 import { ControlPoint as ControlPointType } from '../types';
 import { pointToCanvas } from '../utils/coordinates';
-import { useCallback } from 'react';
 
 interface ControlPointProps {
   point: ControlPointType;
@@ -28,34 +27,7 @@ export const ControlPoint = ({
 
   // Use waypoint's assigned color, fallback to default blue
   const baseColor = point.color || '#3366cc';
-  const colors = { fill: baseColor, strokeWidth: 0 };
-
-  const handleHeadingDragMove = useCallback((e: any) => {
-    if (!onHeadingChange) return;
-    
-    const stage = e.target.getStage();
-    if (!stage) return;
-    
-    const pointerPos = stage.getPointerPosition();
-    if (!pointerPos) return;
-
-    // Calculate angle between pose center and pointer
-    const dx = pointerPos.x - canvasPoint.x;
-    const dy = pointerPos.y - canvasPoint.y;
-    
-    // Konva/Canvas angle is in radians, 0 is right, goes clockwise
-    // Our heading: 0 is right, goes counter-clockwise (or clockwise depending on FTC convention)
-    // Actually, usually in FTC/Pedro: 0 is positive X (right), 90 is positive Y (up)
-    // Canvas: 0 is positive X (right), 90 is positive Y (down)
-    
-    let angleRad = Math.atan2(-dy, dx); // Negative dy because canvas Y is inverted
-    let angleDeg = (angleRad * 180) / Math.PI;
-    
-    // Normalize to 0-360
-    angleDeg = (angleDeg + 360) % 360;
-    
-    onHeadingChange(point.id, angleDeg);
-  }, [canvasPoint, onHeadingChange, point.id]);
+  const colors = { fill: baseColor, stroke: 'transparent', strokeWidth: 0 };
 
   const heading = point.heading ?? 0;
   const headingRad = (heading * Math.PI) / 180;

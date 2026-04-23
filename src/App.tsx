@@ -15,9 +15,7 @@ const POSE_COLORS = [
 const initialChain: PathChain = {
   id: 'chain-0',
   name: 'New Path',
-  startingWaypointId: '',
   startingPoseId: '',
-  waypoints: [],
   poses: [],
   paths: [],
 };
@@ -99,7 +97,7 @@ function App() {
       return;
     }
 
-    const newPath: Path = { id: `path-${Date.now()}`, startPoseId, endPoseId, startWaypointId: startPoseId, endWaypointId: endPoseId || '', headingInterpolation: 'tangent', type: 'line' };
+    const newPath: Path = { id: `path-${Date.now()}`, startPoseId, endPoseId, headingInterpolation: 'tangent', type: 'line' };
     updateActiveChain({ ...activeChain, paths: [...activeChain.paths, newPath] });
     setSelectedPathId(newPath.id);
     setSelectedPoseId(null);
@@ -146,8 +144,6 @@ function App() {
             id: `path-${Date.now()}`, 
             startPoseId, 
             endPoseId: newPoseId, 
-            startWaypointId: startPoseId, 
-            endWaypointId: newPoseId, 
             headingInterpolation: 'tangent', 
             type: 'line' 
           };
