@@ -88,21 +88,17 @@ function App() {
   const selectedPath = activeChain.paths.find(p => p.id === selectedPathId);
 
   const createPath = useCallback((endPoseId: string) => {
-    // Determine the start pose
     let startPoseId: string | undefined;
 
     if (activeChain.paths.length === 0) {
-      // If no paths, start from the starting pose
       startPoseId = activeChain.startingPoseId;
     } else {
-      // Otherwise, start from the last path's endpoint
       const lastPath = activeChain.paths[activeChain.paths.length - 1];
       startPoseId = lastPath.endPoseId;
     }
 
     if (!startPoseId || startPoseId === endPoseId) return;
 
-    // Check if path already exists between these two poses to avoid duplicates
     const existingPath = activeChain.paths.find(p => p.startPoseId === startPoseId && p.endPoseId === endPoseId);
     if (existingPath) {
       setSelectedPathId(existingPath.id);
@@ -110,14 +106,20 @@ function App() {
       return;
     }
 
-    const newPath: Path = { id: `path-${Date.now()}`, startPoseId, endPoseId, headingInterpolation: 'tangent', type: 'line' };
+    const newPath: Path = { 
+      id: `path-${Date.now()}`, 
+      startPoseId, 
+      endPoseId, 
+      headingInterpolation: 'tangent', 
+      type: 'line',
+      deceleration: 'default' 
+    };
     updateActiveChain({ ...activeChain, paths: [...activeChain.paths, newPath] });
     setSelectedPathId(newPath.id);
     setSelectedPoseId(null);
   }, [activeChain, updateActiveChain]);
 
   const handlePoseClick = useCallback((id: string | null, e?: any) => {
-    // Only attempt path creation if shift key is pressed
     if (e && e.evt && e.evt.shiftKey && id) {
       createPath(id);
       return;
@@ -158,7 +160,8 @@ function App() {
             startPoseId, 
             endPoseId: newPoseId, 
             headingInterpolation: 'tangent', 
-            type: 'line' 
+            type: 'line', 
+            deceleration: 'default'
           };
           newPaths.push(newPath);
           setSelectedPathId(newPath.id);
@@ -437,6 +440,29 @@ function App() {
                   </div>
                 </div>
               )}
+              <div className="border-t border-gray-700" />
+              <div>
+                <label className="text-xs text-gray-400 font-mono block mb-1">Deceleration</label>
+                <select value={selectedPath.deceleration || 'default'} onChange={(e) => updatePath(selectedPathId!, { deceleration: e.target.value as any })} className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none">
+                  <option value="default">Default Deceleration</option>
+                  <option value="global">Global Deceleration</option>
+                  <option value="none">No Deceleration</option>
+                </select>
+              </div>
+              {selectedPath.deceleration !== 'none' && (
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-xs text-gray-400 font-mono block mb-1">Braking Strength (0.1-5.0)</label>
+                    <input type="number" step="0.1" min="0.1" max="5.0" value={selectedPath.brakingStrength || ''} onChange={(e) => updatePath(selectedPathId!, { brakingStrength: e.target.value ? parseFloat(e.target.value) : undefined })} className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" />
+                  </div>
+                  {selectedPath.deceleration === 'global' && (
+                    <div>
+                      <label className="text-xs text-gray-400 font-mono block mb-1">Braking Start (0.0-1.0)</label>
+                      <input type="number" step="0.01" min="0" max="1" value={selectedPath.brakingStart !== undefined ? selectedPath.brakingStart : ''} onChange={(e) => updatePath(selectedPathId!, { brakingStart: e.target.value ? parseFloat(e.target.value) : undefined })} className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" />
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="border-t border-gray-700 pt-4">
                 <div className="text-xs text-gray-300 font-semibold mb-3 uppercase tracking-wider">Constraints</div>
                 <div className="space-y-3">
@@ -444,10 +470,11 @@ function App() {
                   <div><label className="text-xs text-gray-400 font-mono block mb-1">T-Value (0.0-1.0)</label><input type="number" step="0.01" min="0" max="1" value={selectedPath.tValueConstraint !== undefined ? selectedPath.tValueConstraint : ''} onChange={(e) => updatePath(selectedPathId!, { tValueConstraint: e.target.value ? parseFloat(e.target.value) : undefined })} placeholder="Optional" className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" /></div>
                   <div><label className="text-xs text-gray-400 font-mono block mb-1">Velocity (in/s)</label><input type="number" value={selectedPath.velocityConstraint || ''} onChange={(e) => updatePath(selectedPathId!, { velocityConstraint: e.target.value ? parseFloat(e.target.value) : undefined })} placeholder="Optional" className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" /></div>
                   <div><label className="text-xs text-gray-400 font-mono block mb-1">Translational (in)</label><input type="number" step="0.1" value={selectedPath.translationalConstraint || ''} onChange={(e) => updatePath(selectedPathId!, { translationalConstraint: e.target.value ? parseFloat(e.target.value) : undefined })} placeholder="Optional" className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" /></div>
-                  <div><label className="text-xs text-gray-400 font-mono block mb-1">Heading (deg)</label><input type="number" step="0.1" value={selectedPath.brakingStrength || ''} onChange={(e) => updatePath(selectedPathId!, { brakingStrength: e.target.value ? parseFloat(e.target.value) : undefined })} placeholder="Optional" className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" /></div>
+                  <div><label className="text-xs text-gray-400 font-mono block mb-1">Heading Constraint (deg)</label><input type="number" step="0.1" value={selectedPath.headingConstraint || ''} onChange={(e) => updatePath(selectedPathId!, { headingConstraint: e.target.value ? parseFloat(e.target.value) : undefined })} placeholder="Optional" className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" /></div>
                 </div>
-                  </div>
-                </div>
+              </div>
+
+            </div>
           )}
         </div>
         

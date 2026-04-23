@@ -70,15 +70,15 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
         lines.push(`                    new Pose(${path.controlPoint2.x.toFixed(1)}, ${path.controlPoint2.y.toFixed(1)}, 0.0),`);
         lines.push(`                    ${endName}`);
         lines.push(`            )`);
-        lines.push(`    ).${headingInterp}`);
       } else {
         lines.push(`    ${pathVarName} = follower.pathBuilder().addPath(`);
         lines.push(`            new BezierLine(`);
         lines.push(`                    ${startName},`);
         lines.push(`                    ${endName}`);
         lines.push(`            )`);
-        lines.push(`    ).${headingInterp}`);
       }
+
+      lines.push(`    ).${headingInterp}`);
 
       // Path constraints
       if (path.timeoutConstraint !== undefined && path.timeoutConstraint > 0) {
@@ -93,32 +93,26 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
       if (path.translationalConstraint !== undefined && path.translationalConstraint > 0) {
         lines.push(`    .setTranslationalConstraint(${path.translationalConstraint.toFixed(1)})`);
       }
-      if (path.brakingStrength !== undefined) {
-        lines.push(`    .setHeadingConstraint(${path.brakingStrength.toFixed(1)})`);
+      if (path.headingConstraint !== undefined) {
+        lines.push(`    .setHeadingConstraint(${path.headingConstraint.toFixed(1)})`);
       }
 
-      // Callbacks
-      if (path.callbacks && path.callbacks.length > 0) {
-        path.callbacks.forEach(callback => {
-          const actionCode = callback.action !== 'none' ? `// ${callback.action}` : '';
-
-          if (callback.parametricPercent !== undefined) {
-            lines.push(`    .addParametricCallback(${callback.parametricPercent.toFixed(2)}, () -> {${actionCode ? ' ' + actionCode : ''}})`);
-          }
-
-          if (callback.temporalMillis !== undefined) {
-            lines.push(`    .addTemporalCallback(${Math.round(callback.temporalMillis)}, () -> {${actionCode ? ' ' + actionCode : ''}})`);
-          }
-
-          if (callback.poseCallback) {
-            const poseGuess = callback.poseGuess !== undefined ? `, ${callback.poseGuess.toFixed(2)}` : '';
-            lines.push(`    .addPoseCallback(new Pose(${callback.poseCallback.x.toFixed(1)}, ${callback.poseCallback.y.toFixed(1)}, ${formatHeading(callback.poseCallback.heading)})${poseGuess}, () -> {${actionCode ? ' ' + actionCode : ''}})`);
-          }
-
-          if (callback.customCallbackCode) {
-            lines.push(`    .addCustomCallback(() -> {${callback.customCallbackCode}})`);
-          }
-        });
+      // Deceleration and braking
+      if(path.deceleration === 'default' && path.brakingStrength !== undefined && (path.brakingStrength ?? 0) > 0) {
+        lines.push(`    .setBreakingStrength(${path.brakingStrength.toFixed(1)})`);
+      }
+      if (path.deceleration === 'global') {
+        if ((path.brakingStrength ?? 0) > 0 && path.brakingStrength !== undefined) {
+          lines.push(`    .setGlobalDeceleration(${path.brakingStrength.toFixed(1)})`);
+        } else {
+          lines.push(`    .setGlobalDeceleration()`);
+        }
+      }
+      if (path.deceleration === 'global' && (path.brakingStart ?? 0) > 0) {
+        lines.push(`    .setBrakingStart(${path.brakingStart?.toFixed(1)})`);
+      }
+      if (path.deceleration === 'none') {
+        lines.push(`    .setNoDeceleration()`);
       }
 
       lines.push(`    .build();`);

@@ -42,8 +42,12 @@ export interface Path {
   timeoutConstraint?: number; // milliseconds
   tValueConstraint?: number; // 0.0-1.0
   velocityConstraint?: number; // inches/second
-  translationalConstraint?: number; // inches
+  translationalConstraint?: number;  
+  headingConstraint?: number; // degrees // inches
+  // Deceleration and braking
+  deceleration?: 'default' | 'global' | 'none'; 
   brakingStrength?: number; // 0.1-5.0
+  brakingStart?: number; // 0.0-1.0
   // Callbacks
   callbacks?: Callback[];
 }
