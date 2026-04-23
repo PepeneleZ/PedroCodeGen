@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { PathChain, Pose, Path } from './types';
-import { Field, CANVAS_SIZE } from './components/Field';
+import { Field } from './components/Field';
 import { CodeGenerator } from './components/CodeGenerator';
 import { canvasToPoint } from './utils/coordinates';
 import { FieldOverlay } from './components/FieldOverlay';
@@ -26,11 +26,28 @@ function App() {
   const [selectedPoseId, setSelectedPoseId] = useState<string | null>(null);
   const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
+  const [canvasSize, setCanvasSize] = useState(650);
+  const containerRef = useRef<HTMLDivElement>(null);
+
   const [mapImage, setMapImage] = useState<HTMLImageElement | null>(() => {
     const img = new Image();
     img.src = decodeImg;
     return img;
   });
+
+  const updateCanvasSize = useCallback(() => {
+    if (containerRef.current) {
+      const { width, height } = containerRef.current.getBoundingClientRect();
+      const size = Math.min(width, height) - 32; // padding
+      setCanvasSize(Math.max(300, size));
+    }
+  }, []);
+
+  useEffect(() => {
+    updateCanvasSize();
+    window.addEventListener('resize', updateCanvasSize);
+    return () => window.removeEventListener('resize', updateCanvasSize);
+  }, [updateCanvasSize]);
 
   const activeChain = chains[activeChainIndex] || chains[0];
   const startPose = activeChain.startingPoseId
@@ -192,9 +209,10 @@ function App() {
   }, [activeChain, updateActiveChain]);
 
   const handleControlPointDragMove = useCallback((pathId: string, cpIndex: 1 | 2, canvasX: number, canvasY: number) => {
-    const fieldPoint = canvasToPoint({ x: canvasX, y: canvasY }, CANVAS_SIZE);
+    const fieldPoint = canvasToPoint({ x: canvasX, y: canvasY }, canvasSize);
     updatePath(pathId, cpIndex === 1 ? { controlPoint1: fieldPoint } : { controlPoint2: fieldPoint });
-  }, [updatePath]);
+  }, [updatePath, canvasSize]);
+
 
   const handlePoseHeadingChange = useCallback((id: string, heading: number) => {
     updatePose(id, { heading });
@@ -263,7 +281,7 @@ function App() {
         <button onClick={clearChain} className="text-[11px] px-2 py-0.5 bg-red-900 hover:bg-red-800 text-red-300 rounded transition-colors ml-auto">Clear</button>
       </header>
 
-      <div className="flex-1 grid grid-cols-[300px,1fr,300px] overflow-hidden">
+      <div className="flex-1 grid grid-cols-[260px,1fr,260px] lg:grid-cols-[300px,1fr,300px] overflow-hidden">
         <div className="bg-gray-900 border-r border-gray-800 flex flex-col min-h-0">
           <div className="flex flex-col flex-1 min-h-0 border-b border-gray-800">
             <div className="p-3 border-b border-gray-800 text-xs font-semibold text-white bg-gray-900">Poses ({activeChain.poses.length})</div>
@@ -271,7 +289,7 @@ function App() {
               {!activeChain.startingPoseId ? <div className="text-xs text-gray-500 font-mono p-2">Set the starting pose first.</div> : (
                       <ul className="space-y-2 list-none">
                   {startPose && (
-                    <li onClick={(e) => handlePoseClick(startPose.id, e)} className={`p-2 border rounded cursor-pointer transition-colors ${selectedPoseId === startPose.id ? 'bg-blue-900/30 border-blue-500' : 'border-gray-700 bg-gray-800 hover:border-gray-600'}`}>
+                    <li key={startPose.id} onClick={(e) => handlePoseClick(startPose.id, e)} className={`p-2 border rounded cursor-pointer transition-colors ${selectedPoseId === startPose.id ? 'bg-blue-900/30 border-blue-500' : 'border-gray-700 bg-gray-800 hover:border-gray-600'}`}>
                             <div className="flex justify-between items-start gap-2">
                         <div className="flex-1 min-w-0"><div className="flex items-center gap-2"><div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: startPose.color || '#3366cc' }} /><div className="text-xs font-mono text-teal-300 font-semibold truncate">{startPose.name} (Starting Pose)</div></div></div>
                         <button onClick={(e) => { e.stopPropagation(); deletePose(startPose.id); }} className="text-xs text-red-400">✕</button>
@@ -323,7 +341,7 @@ function App() {
           </div>
         </div>
 
-        <div className="bg-gray-950 flex justify-center items-center overflow-hidden p-4">
+        <div ref={containerRef} className="bg-gray-950 flex justify-center items-center overflow-hidden p-4">
           <Field 
             pathChain={activeChain} 
             onPathChainChange={updateActiveChain} 
@@ -336,6 +354,7 @@ function App() {
             mapImage={mapImage}
             onCreatePose={(x: number, y: number, createPath: boolean) => addPoseAtPosition(x, y, createPath)}
             onPathCreate={(endPoseId: string) => createPath(endPoseId)}
+            canvasSize={canvasSize}
             />
                     </div>
         <div className="bg-gray-900 border-l border-gray-800 overflow-y-auto">
@@ -367,7 +386,7 @@ function App() {
               <div className="text-xs font-semibold text-white uppercase tracking-wider">Path Properties</div>
               <div>
                 <label className="text-xs text-gray-400 font-mono block mb-1">Path Name</label>
-                <input type="text" value={selectedPath.name || ''} onChange={(e) => updatePath(selectedPathId!, { name: e.target.value || undefined })} placeholder={`path${activeChain.paths.indexOf(selectedPath)}`} className="w-full text-xs px-2 py-1 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none" />
+                <input type="text" value={selectedPath.name || ''} onChange={(e) => updatePath(selectedPathId!, { name: e.target.value || undefined })} placeholder={`path${activeChain.paths.indexOf(selectedPath) + 1}`} className="w-full text-xs px-2 py-1 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none" />
               </div>
               <div className="border-t border-gray-800" />
                         <div>

@@ -28,7 +28,7 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
     lines.push('');
 
     paths.forEach((path, pathIndex) => {
-      const pathVarName = (path.name || `path${pathIndex}`).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
+      const pathVarName = (path.name || `path${pathIndex + 1}`).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
       lines.push(`PathChain ${pathVarName};`);
     });
     lines.push('');
@@ -42,7 +42,7 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
 
       const startName = poseVarNames[startPose.id];
       const endName = poseVarNames[endPose.id];
-      const pathVarName = (path.name || `path${pathIndex}`).replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
+      const pathVarName = (path.name || `path${pathIndex + 1}`).replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');
 
       const headingInterp = (() => {
         if (path.headingInterpolation === 'tangent') {

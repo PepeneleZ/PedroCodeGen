@@ -18,9 +18,8 @@ interface FieldProps {
   onPathEndpointSelect?: (poseId: string) => void;
   onCreatePose?: (x: number, y: number, createPath: boolean) => void;
   onPathCreate?: (endPoseId: string) => void;
+  canvasSize: number;
 }
-
-export const CANVAS_SIZE = 650;
 
 export const Field = ({
   pathChain,
@@ -36,6 +35,7 @@ export const Field = ({
   onPathEndpointSelect,
   onCreatePose,
   onPathCreate,
+  canvasSize,
 }: FieldProps) => {
 
   const stageRef = useRef<any>(null);
@@ -57,14 +57,14 @@ export const Field = ({
       // Check if we clicked on a pose first
       const poses = getPoses();
       const clickedPose = poses.find(w => {
-        const canvasPt = pointToCanvas({ x: w.x, y: w.y }, CANVAS_SIZE);
+        const canvasPt = pointToCanvas({ x: w.x, y: w.y }, canvasSize);
         const dist = Math.sqrt((pos.x - canvasPt.x) ** 2 + (pos.y - canvasPt.y) ** 2);
         return dist < 14;
       });
 
       // Handle Ctrl+Click or Shift+Click on empty space: Create new pose
       if ((e.evt.ctrlKey || (e.evt.shiftKey && !clickedPose)) && onCreatePose) {
-        const fieldPoint = canvasToPoint(pos, CANVAS_SIZE);
+        const fieldPoint = canvasToPoint(pos, canvasSize);
         onCreatePose(
           clampToFieldX(fieldPoint.x),
           clampToFieldY(fieldPoint.y),
@@ -86,13 +86,13 @@ export const Field = ({
         onSelectedPoseChange(null, e);
       }
     },
-    [pathChain, onPathChainChange, onSelectedPoseChange, getPoses, onCreatePose, onPathCreate],
+    [pathChain, onPathChainChange, onSelectedPoseChange, getPoses, onCreatePose, onPathCreate, canvasSize],
   );
 
   // Handle pose drag
   const handlePoseDragMove = useCallback(
     (id: string, x: number, y: number) => {
-      const fieldPoint = canvasToPoint({ x, y }, CANVAS_SIZE);
+      const fieldPoint = canvasToPoint({ x, y }, canvasSize);
 
       const updatedPoses = pathChain.poses.map((p) =>
         p.id === id
@@ -109,12 +109,12 @@ export const Field = ({
         poses: updatedPoses,
       });
     },
-    [pathChain, onPathChainChange],
+    [pathChain, onPathChainChange, canvasSize],
   );
 
   // Draw grid lines
   const gridLines = [];
-  const gridSpacing = CANVAS_SIZE / 12; // 12-inch grid
+  const gridSpacing = canvasSize / 12; // 12-inch grid
 
   // Vertical grid lines
   for (let i = 0; i <= 12; i++) {
@@ -122,7 +122,7 @@ export const Field = ({
     gridLines.push(
       <Line
         key={`v-${i}`}
-        points={[x, 0, x, CANVAS_SIZE]}
+        points={[x, 0, x, canvasSize]}
         stroke="#374151"
         strokeWidth={i === 6 ? 2 : 1} // Thicker center line
         opacity={i === 6 ? 0.8 : 0.3}
@@ -136,7 +136,7 @@ export const Field = ({
     gridLines.push(
       <Line
         key={`h-${i}`}
-        points={[0, y, CANVAS_SIZE, y]}
+        points={[0, y, canvasSize, y]}
         stroke="#374151"
         strokeWidth={i === 6 ? 2 : 1} // Thicker center line
         opacity={i === 6 ? 0.8 : 0.3}
@@ -149,8 +149,8 @@ export const Field = ({
       <div style={{ position: 'relative' }}>
         <Stage
           ref={stageRef}
-          width={CANVAS_SIZE}
-          height={CANVAS_SIZE}
+          width={canvasSize}
+          height={canvasSize}
           onClick={handleStageClick}
           className="border-2 border-gray-600 rounded-lg"
           style={{
@@ -163,8 +163,8 @@ export const Field = ({
             <Rect
               x={0}
               y={0}
-              width={CANVAS_SIZE}
-              height={CANVAS_SIZE}
+              width={canvasSize}
+              height={canvasSize}
               fill="#111827"
             />
 
@@ -174,8 +174,8 @@ export const Field = ({
                 image={mapImage}
                 x={0}
                 y={0}
-                width={CANVAS_SIZE}
-                height={CANVAS_SIZE}
+                width={canvasSize}
+                height={canvasSize}
                 opacity={0.8}
               />
             )}
@@ -186,7 +186,7 @@ export const Field = ({
             {/* Path chain */}
             <PathChainComponent
               pathChain={pathChain}
-              canvasSize={CANVAS_SIZE}
+              canvasSize={canvasSize}
               selectedPoseId={selectedPoseId}
               selectedPathId={selectedPathId}
               onPoseDragMove={handlePoseDragMove}
