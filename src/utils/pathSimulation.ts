@@ -132,6 +132,7 @@ export interface SimState {
   currentVelocity: number;
   distanceTravelledInPath: number;
   currentHeading: number;
+  totalTime: number;
 }
 
 /**
@@ -176,7 +177,8 @@ export const updateSimState = (
     return {
       ...prevState,
       currentHeading: normalizeAngle(nextHeading),
-      currentVelocity: 0 // Stand still while rotating at start
+      currentVelocity: 0, // Stand still while rotating at start
+      totalTime: prevState.totalTime + deltaTime
     };
   }
   
@@ -253,6 +255,84 @@ export const updateSimState = (
     t: finalT,
     currentVelocity: finalVelocity,
     distanceTravelledInPath: finalDistanceTravelled,
-    currentHeading: newHeading
+    currentHeading: newHeading,
+    totalTime: prevState.totalTime + deltaTime
   };
+};
+
+/**
+ * Calculates the simulation state at a specific point in time.
+ */
+export const getSimStateAtTime = (
+  activeChain: { paths: Path[]; poses: Pose[] },
+  settings: {
+    maxVelocity: number;
+    maxAcceleration: number;
+    maxDeceleration: number;
+    angularVelocity: number;
+    xVelocity: number;
+    yVelocity: number;
+    frictionCoefficient: number;
+  },
+  targetTime: number
+): SimState => {
+  let simState: SimState = {
+    pathIndex: 0,
+    t: 0,
+    currentVelocity: 0,
+    distanceTravelledInPath: 0,
+    currentHeading: activeChain.poses.find(p => p.id === activeChain.paths[0]?.startPoseId)?.heading || 0,
+    totalTime: 0
+  };
+
+  if (activeChain.paths.length === 0 || targetTime <= 0) return simState;
+
+  const dt = 0.01; // 10ms steps for precision
+  while (simState.totalTime < targetTime && simState.pathIndex < activeChain.paths.length) {
+    const remaining = targetTime - simState.totalTime;
+    const step = Math.min(dt, remaining);
+    simState = updateSimState(activeChain, settings, simState, step);
+    if (step < dt) break; // Reached targetTime precisely
+  }
+
+  return simState;
+};
+
+/**
+ * Estimates the total time of the simulation.
+ */
+export const calculateTotalSimTime = (
+  activeChain: { paths: Path[]; poses: Pose[] },
+  settings: {
+    maxVelocity: number;
+    maxAcceleration: number;
+    maxDeceleration: number;
+    angularVelocity: number;
+    xVelocity: number;
+    yVelocity: number;
+    frictionCoefficient: number;
+  }
+): number => {
+  if (activeChain.paths.length === 0) return 0;
+  
+  // We run a high-fidelity dry-run simulation to get the total time
+  let simState: SimState = {
+    pathIndex: 0,
+    t: 0,
+    currentVelocity: 0,
+    distanceTravelledInPath: 0,
+    currentHeading: activeChain.poses.find(p => p.id === activeChain.paths[0].startPoseId)?.heading || 0,
+    totalTime: 0
+  };
+  
+  const dt = 0.01; // 10ms steps for high accuracy
+  const maxSteps = 10000; // 100 seconds max
+  let steps = 0;
+  
+  while (simState.pathIndex < activeChain.paths.length && steps < maxSteps) {
+    simState = updateSimState(activeChain, settings, simState, dt);
+    steps++;
+  }
+  
+  return simState.totalTime;
 };

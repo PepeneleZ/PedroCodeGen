@@ -7,7 +7,7 @@ import { FieldOverlay } from './components/FieldOverlay';
 import { useUndoRedo } from './hooks/useUndoRedo';
 import decodeImg from './fields/decode.png';
 
-import { getRobotPoseAtProgress, updateSimState, SimState } from './utils/pathSimulation';
+import { getRobotPoseAtProgress, updateSimState, SimState, calculateTotalSimTime, getSimStateAtTime } from './utils/pathSimulation';
 
 const POSE_COLORS = [
   '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
@@ -64,7 +64,13 @@ function App() {
   
   // Simulation state
   const [isSimulating, setIsSimulating] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [totalSimTime, setTotalSimTime] = useState(0);
+  const [simProgressTime, setSimProgressTime] = useState(0);
   const [simPose, setSimPose] = useState<{ x: number; y: number; heading: number } | null>(null);
+
+  const simStateRef = useRef<SimState | null>(null);
+  const lastTimeRef = useRef<number>(0);
 
   const [mapImage, setMapImage] = useState<HTMLImageElement | null>(() => {
     const img = new Image();
@@ -100,43 +106,60 @@ function App() {
   useEffect(() => {
     if (!isSimulating || activeChain.paths.length === 0) {
       setSimPose(null);
+      setSimProgressTime(0);
+      setTotalSimTime(0);
+      simStateRef.current = null;
+      lastTimeRef.current = 0;
       return;
     }
 
-    let lastTime = performance.now();
-    const initialPath = activeChain.paths[0];
-    const initialStartPose = activeChain.poses.find(p => p.id === initialPath?.startPoseId);
-    
-    let simState: SimState = {
-      pathIndex: 0,
-      t: 0,
-      currentVelocity: 0,
-      distanceTravelledInPath: 0,
-      currentHeading: initialStartPose?.heading || 0
-    };
+    const settings = activeChain.simulationSettings || defaultSimulationSettings;
+
+    // Initialize simulation state if it doesn't exist
+    if (!simStateRef.current) {
+      const total = calculateTotalSimTime(activeChain, settings);
+      setTotalSimTime(total);
+
+      const initialPath = activeChain.paths[0];
+      const initialStartPose = activeChain.poses.find(p => p.id === initialPath?.startPoseId);
+      
+      simStateRef.current = {
+        pathIndex: 0,
+        t: 0,
+        currentVelocity: 0,
+        distanceTravelledInPath: 0,
+        currentHeading: initialStartPose?.heading || 0,
+        totalTime: 0
+      };
+      lastTimeRef.current = performance.now();
+    }
+
     let animationFrame: number;
 
     const animate = (time: number) => {
-      const deltaTime = (time - lastTime) / 1000;
-      lastTime = time;
+      const deltaTime = (time - lastTimeRef.current) / 1000;
+      lastTimeRef.current = time;
 
-      const settings = activeChain.simulationSettings || defaultSimulationSettings;
-      
-      simState = updateSimState(activeChain, settings, simState, deltaTime);
+      if (!isPaused && simStateRef.current) {
+        simStateRef.current = updateSimState(activeChain, settings, simStateRef.current, deltaTime);
+        setSimProgressTime(simStateRef.current.totalTime);
 
-      if (simState.pathIndex >= activeChain.paths.length) {
-        setIsSimulating(false);
-        setSimPose(null);
-        return;
-      }
+        if (simStateRef.current.pathIndex >= activeChain.paths.length) {
+          setIsSimulating(false);
+          setIsPaused(false);
+          setSimPose(null);
+          simStateRef.current = null;
+          return;
+        }
 
-      const path = activeChain.paths[simState.pathIndex];
-      const startPose = activeChain.poses.find(p => p.id === path.startPoseId);
-      const endPose = activeChain.poses.find(p => p.id === path.endPoseId);
+        const path = activeChain.paths[simStateRef.current.pathIndex];
+        const startPose = activeChain.poses.find(p => p.id === path.startPoseId);
+        const endPose = activeChain.poses.find(p => p.id === path.endPoseId);
 
-      if (startPose && endPose) {
-        const poseAtT = getRobotPoseAtProgress(path, startPose, endPose, simState.t);
-        setSimPose({ ...poseAtT, heading: simState.currentHeading });
+        if (startPose && endPose) {
+          const poseAtT = getRobotPoseAtProgress(path, startPose, endPose, simStateRef.current.t);
+          setSimPose({ ...poseAtT, heading: simStateRef.current.currentHeading });
+        }
       }
 
       animationFrame = requestAnimationFrame(animate);
@@ -144,7 +167,7 @@ function App() {
 
     animationFrame = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(animationFrame);
-  }, [isSimulating, activeChain]);
+  }, [isSimulating, isPaused, activeChain]);
 
   const updateActiveChain = useCallback((updatedChain: PathChain, selectionUpdates?: { selectedPoseId?: string | null, selectedPathId?: string | null }) => {
     const coloredPoses = assignPoseColors(updatedChain.poses, updatedChain.paths, updatedChain.startingPoseId);
@@ -329,6 +352,29 @@ function App() {
     );
   }, [activeChain, updateActiveChain]);
 
+  const handleSeek = useCallback((targetTime: number) => {
+    if (!isSimulating || activeChain.paths.length === 0) return;
+    
+    const settings = activeChain.simulationSettings || defaultSimulationSettings;
+    const newState = getSimStateAtTime(activeChain, settings, targetTime);
+    
+    simStateRef.current = newState;
+    setSimProgressTime(newState.totalTime);
+    
+    const path = activeChain.paths[newState.pathIndex];
+    const startPose = activeChain.poses.find(p => p.id === path?.startPoseId);
+    const endPose = activeChain.poses.find(p => p.id === path?.endPoseId);
+
+    if (path && startPose && endPose) {
+      const poseAtT = getRobotPoseAtProgress(path, startPose, endPose, newState.t);
+      setSimPose({ ...poseAtT, heading: newState.currentHeading });
+    }
+    
+    // Pause when scrubbing
+    setIsPaused(true);
+    lastTimeRef.current = performance.now();
+  }, [isSimulating, activeChain]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'z') { e.preventDefault(); undo(); }
@@ -428,23 +474,71 @@ function App() {
           </div>
         </div>
 
-        <div ref={containerRef} className="bg-gray-950 flex justify-center items-center overflow-hidden p-4">
-          <Field 
-            pathChain={activeChain} 
-            onPathChainChange={updateActiveChain} 
-            onSelectedPoseChange={handlePoseClick}
-            selectedPoseId={selectedPoseId} 
-            selectedPathId={selectedPathId} 
-            onSelectedPathChange={handlePathClick}
-            onControlPointDragMove={handleControlPointDragMove}
-            onPoseHeadingChange={handlePoseHeadingChange}
-            mapImage={mapImage}
-            onCreatePose={(x: number, y: number, createPath: boolean) => addPoseAtPosition(x, y, createPath)}
-            onPathCreate={(endPoseId: string) => createPath(endPoseId)}
-            canvasSize={canvasSize}
-            simPose={simPose}
-            />
+        <div ref={containerRef} className="bg-gray-950 flex flex-col justify-center items-center overflow-hidden p-4 relative">
+          <div className="flex-1 flex items-center justify-center w-full min-h-0">
+            <Field 
+              pathChain={activeChain} 
+              onPathChainChange={updateActiveChain} 
+              onSelectedPoseChange={handlePoseClick}
+              selectedPoseId={selectedPoseId} 
+              selectedPathId={selectedPathId} 
+              onSelectedPathChange={handlePathClick}
+              onControlPointDragMove={handleControlPointDragMove}
+              onPoseHeadingChange={handlePoseHeadingChange}
+              mapImage={mapImage}
+              onCreatePose={(x: number, y: number, createPath: boolean) => addPoseAtPosition(x, y, createPath)}
+              onPathCreate={(endPoseId: string) => createPath(endPoseId)}
+              canvasSize={canvasSize}
+              simPose={simPose}
+              />
+          </div>
+
+          {/* Simulation Playback Bar */}
+          {isSimulating && (
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-2xl px-6">
+              <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-xl p-4 shadow-2xl space-y-3">
+                <div className="flex items-center justify-between gap-4">
+                  <button 
+                    onClick={() => setIsPaused(!isPaused)}
+                    className="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-500 text-white rounded-full transition-colors shadow-lg"
+                  >
+                    {isPaused ? (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                    ) : (
+                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                    )}
+                  </button>
+                  
+                  <div className="flex-1 space-y-1">
+                    <div className="flex justify-between text-[10px] font-mono text-gray-400">
+                      <span>{simProgressTime.toFixed(2)}s</span>
+                      <span>{totalSimTime.toFixed(2)}s</span>
                     </div>
+                    <div className="relative h-4 flex items-center">
+                      <input 
+                        type="range"
+                        min="0"
+                        max={totalSimTime || 0}
+                        step="0.01"
+                        value={simProgressTime || 0}
+                        onChange={(e) => handleSeek(parseFloat(e.target.value))}
+                        className="w-full h-1.5 bg-gray-800 rounded-full appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => setIsSimulating(false)}
+                    className="p-2 text-gray-400 hover:text-white transition-colors"
+                    title="Stop Simulation"
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
         <div className="bg-gray-900 border-l border-gray-800 overflow-y-auto">
           {!selectedPose && !selectedPath && (
             <div className="p-8 text-center space-y-4">
