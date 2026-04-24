@@ -468,6 +468,181 @@ function App() {
                 </div>
               </div>
 
+              <div className="border-t border-gray-700 pt-4">
+                <div className="flex justify-between items-center mb-3">
+                  <div className="text-xs text-gray-300 font-semibold uppercase tracking-wider">Callbacks</div>
+                  <button 
+                    onClick={() => {
+                      const newCallback = { id: `cb-${Date.now()}`, action: 'Action', parametricPercent: 0.5 };
+                      updatePath(selectedPathId!, { callbacks: [...(selectedPath.callbacks || []), newCallback] });
+                    }}
+                    className="text-[10px] px-2 py-0.5 bg-blue-900/50 hover:bg-blue-800 text-blue-300 rounded border border-blue-800/50 transition-colors"
+                  >
+                    + Add
+                  </button>
+                </div>
+                <div className="space-y-4">
+                  {(selectedPath.callbacks || []).map((cb, idx) => (
+                    <div key={cb.id} className="p-2 bg-gray-800/50 border border-gray-700 rounded space-y-2 relative group">
+                      <button 
+                        onClick={() => updatePath(selectedPathId!, { callbacks: selectedPath.callbacks?.filter(c => c.id !== cb.id) })}
+                        className="absolute top-1 right-1 text-gray-500 hover:text-red-400 text-[10px] p-1"
+                      >
+                        ✕
+                      </button>
+                      <div className="text-[10px] font-bold text-gray-500 uppercase flex items-center gap-2">
+                        Callback #{idx + 1}
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-gray-400 uppercase block mb-1">Action Description</label>
+                        <input 
+                          type="text" 
+                          value={cb.action} 
+                          onChange={(e) => {
+                            const newCallbacks = [...(selectedPath.callbacks || [])];
+                            newCallbacks[idx] = { ...cb, action: e.target.value };
+                            updatePath(selectedPathId!, { callbacks: newCallbacks });
+                          }} 
+                          className="w-full text-[11px] px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white focus:border-blue-500 outline-none"
+                          placeholder="e.g. lift up"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[9px] text-gray-400 uppercase block mb-1">Type</label>
+                          <select 
+                            value={cb.parametricPercent !== undefined ? 'parametric' : cb.temporalMillis !== undefined ? 'temporal' : 'pose'} 
+                            onChange={(e) => {
+                              const type = e.target.value;
+                              const newCallbacks = [...(selectedPath.callbacks || [])];
+                              const base = { id: cb.id, action: cb.action, customCallbackCode: cb.customCallbackCode };
+                              if (type === 'parametric') newCallbacks[idx] = { ...base, parametricPercent: 0.5 };
+                              else if (type === 'temporal') newCallbacks[idx] = { ...base, temporalMillis: 500 };
+                              else newCallbacks[idx] = { ...base, poseCallback: { x: 0, y: 0 } };
+                              updatePath(selectedPathId!, { callbacks: newCallbacks });
+                            }}
+                            className="w-full text-[11px] px-1 py-1 bg-gray-900 border border-gray-700 rounded text-white outline-none"
+                          >
+                            <option value="parametric">Parametric</option>
+                            <option value="temporal">Temporal</option>
+                            <option value="pose">Pose-based</option>
+                          </select>
+                        </div>
+                        <div>
+                          {cb.parametricPercent !== undefined && (
+                            <>
+                              <label className="text-[9px] text-gray-400 uppercase block mb-1">Percent (0-1)</label>
+                              <input 
+                                type="number" step="0.05" min="0" max="1" 
+                                value={cb.parametricPercent} 
+                                onChange={(e) => {
+                                  const newCallbacks = [...(selectedPath.callbacks || [])];
+                                  newCallbacks[idx] = { ...cb, parametricPercent: parseFloat(e.target.value) || 0 };
+                                  updatePath(selectedPathId!, { callbacks: newCallbacks });
+                                }}
+                                className="w-full text-[11px] px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white focus:border-blue-500 outline-none"
+                              />
+                            </>
+                          )}
+                          {cb.temporalMillis !== undefined && (
+                            <>
+                              <label className="text-[9px] text-gray-400 uppercase block mb-1">Delay (ms)</label>
+                              <input 
+                                type="number" 
+                                value={cb.temporalMillis} 
+                                onChange={(e) => {
+                                  const newCallbacks = [...(selectedPath.callbacks || [])];
+                                  newCallbacks[idx] = { ...cb, temporalMillis: parseInt(e.target.value) || 0 };
+                                  updatePath(selectedPathId!, { callbacks: newCallbacks });
+                                }}
+                                className="w-full text-[11px] px-2 py-1 bg-gray-900 border border-gray-700 rounded text-white focus:border-blue-500 outline-none"
+                              />
+                            </>
+                          )}
+                          {cb.poseCallback && (
+                            <div className="space-y-2">
+                              <div className="flex gap-1">
+                                <div className="flex-1">
+                                  <label className="text-[9px] text-gray-400 uppercase block mb-1">X</label>
+                                  <input 
+                                    type="number" 
+                                    value={cb.poseCallback.x} 
+                                    onChange={(e) => {
+                                      const newCallbacks = [...(selectedPath.callbacks || [])];
+                                      newCallbacks[idx] = { ...cb, poseCallback: { ...cb.poseCallback!, x: parseFloat(e.target.value) || 0 } };
+                                      updatePath(selectedPathId!, { callbacks: newCallbacks });
+                                    }}
+                                    className="w-full text-[11px] px-1 py-1 bg-gray-900 border border-gray-700 rounded text-white focus:border-blue-500 outline-none"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-[9px] text-gray-400 uppercase block mb-1">Y</label>
+                                  <input 
+                                    type="number" 
+                                    value={cb.poseCallback.y} 
+                                    onChange={(e) => {
+                                      const newCallbacks = [...(selectedPath.callbacks || [])];
+                                      newCallbacks[idx] = { ...cb, poseCallback: { ...cb.poseCallback!, y: parseFloat(e.target.value) || 0 } };
+                                      updatePath(selectedPathId!, { callbacks: newCallbacks });
+                                    }}
+                                    className="w-full text-[11px] px-1 py-1 bg-gray-900 border border-gray-700 rounded text-white focus:border-blue-500 outline-none"
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex gap-1">
+                                <div className="flex-1">
+                                  <label className="text-[9px] text-gray-400 uppercase block mb-1">Heading</label>
+                                  <input 
+                                    type="number" 
+                                    value={cb.poseCallback.heading || 0} 
+                                    onChange={(e) => {
+                                      const newCallbacks = [...(selectedPath.callbacks || [])];
+                                      newCallbacks[idx] = { ...cb, poseCallback: { ...cb.poseCallback!, heading: parseFloat(e.target.value) || 0 } };
+                                      updatePath(selectedPathId!, { callbacks: newCallbacks });
+                                    }}
+                                    className="w-full text-[11px] px-1 py-1 bg-gray-900 border border-gray-700 rounded text-white focus:border-blue-500 outline-none"
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-[9px] text-gray-400 uppercase block mb-1">t-Guess</label>
+                                  <input 
+                                    type="number" step="0.1" min="0" max="1"
+                                    value={cb.poseGuess || ''} 
+                                    placeholder="Opt"
+                                    onChange={(e) => {
+                                      const newCallbacks = [...(selectedPath.callbacks || [])];
+                                      newCallbacks[idx] = { ...cb, poseGuess: e.target.value ? parseFloat(e.target.value) : undefined };
+                                      updatePath(selectedPathId!, { callbacks: newCallbacks });
+                                    }}
+                                    className="w-full text-[11px] px-1 py-1 bg-gray-900 border border-gray-700 rounded text-white focus:border-blue-500 outline-none"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-[9px] text-gray-400 uppercase block mb-1">Custom Action Java Code (Optional)</label>
+                        <textarea 
+                          value={cb.customCallbackCode || ''} 
+                          onChange={(e) => {
+                            const newCallbacks = [...(selectedPath.callbacks || [])];
+                            newCallbacks[idx] = { ...cb, customCallbackCode: e.target.value };
+                            updatePath(selectedPathId!, { callbacks: newCallbacks });
+                          }} 
+                          className="w-full text-[10px] h-12 px-2 py-1 bg-gray-900 border border-gray-700 rounded text-gray-300 focus:border-blue-500 outline-none font-mono"
+                          placeholder="() -> { ... }"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  {(!selectedPath.callbacks || selectedPath.callbacks.length === 0) && (
+                    <div className="text-[10px] text-gray-500 italic text-center py-2">No callbacks defined for this path.</div>
+                  )}
+                </div>
+              </div>
+
             </div>
           )}
         </div>

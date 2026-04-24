@@ -115,6 +115,27 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
         lines.push(`    .setNoDeceleration()`);
       }
 
+      // Callbacks
+      if (path.callbacks && path.callbacks.length > 0) {
+        path.callbacks.forEach(cb => {
+          const actionCode = cb.customCallbackCode || `() -> {\n        /* ${cb.action} */\n    }`;
+          
+          if (cb.parametricPercent !== undefined) {
+            lines.push(`    .addParametricCallback(${cb.parametricPercent.toFixed(3)}, ${actionCode})`);
+          } else if (cb.temporalMillis !== undefined) {
+            lines.push(`    .addTemporalCallback(${Math.round(cb.temporalMillis)}, ${actionCode})`);
+          } else if (cb.poseCallback) {
+            const h = cb.poseCallback.heading !== undefined ? `Math.toRadians(${cb.poseCallback.heading.toFixed(1)})` : 'Math.toRadians(0.0)';
+            lines.push(`    .addPoseCallback(new Pose(${cb.poseCallback.x.toFixed(1)}, ${cb.poseCallback.y.toFixed(1)}, ${h}), ${actionCode})`);
+          } else {
+             // Fallback to custom action if defined but no trigger type
+             if (cb.customCallbackCode) {
+               lines.push(`    .addPathCallback(${cb.customCallbackCode})`);
+             }
+          }
+        });
+      }
+
       lines.push(`    .build();`);
       lines.push('');
     });
