@@ -1,7 +1,7 @@
 import { useRef, useCallback } from 'react';
-import { Stage, Layer, Rect, Line, Image as KonvaImage } from 'react-konva';
+import { Stage, Layer, Rect, Line, Image as KonvaImage, Group, Circle } from 'react-konva';
 import { PathChain } from '../types';
-import { canvasToPoint, pointToCanvas, clampToFieldX, clampToFieldY } from '../utils/coordinates';
+import { canvasToPoint, pointToCanvas, clampToFieldX, clampToFieldY, inchesToPixels } from '../utils/coordinates';
 import { PathChainComponent } from './PathChain';
 
 interface FieldProps {
@@ -19,6 +19,7 @@ interface FieldProps {
   onCreatePose?: (x: number, y: number, createPath: boolean) => void;
   onPathCreate?: (endPoseId: string) => void;
   canvasSize: number;
+  simPose?: { x: number; y: number; heading: number } | null;
 }
 
 export const Field = ({
@@ -36,9 +37,18 @@ export const Field = ({
   onCreatePose,
   onPathCreate,
   canvasSize,
+  simPose,
 }: FieldProps) => {
 
   const stageRef = useRef<any>(null);
+
+  // Robot dimensions in inches
+  const ROBOT_WIDTH = 18;
+  const ROBOT_LENGTH = 18;
+
+  const robotCanvasPos = simPose ? pointToCanvas(simPose, canvasSize) : null;
+  const robotWidthPx = inchesToPixels(ROBOT_WIDTH, canvasSize);
+  const robotLengthPx = inchesToPixels(ROBOT_LENGTH, canvasSize);
 
   // Check if click is near a pose
   const getPoses = useCallback(() => {
@@ -191,6 +201,39 @@ export const Field = ({
               selectingPathEndpoint={selectingPathEndpoint}
               onPathEndpointSelect={onPathEndpointSelect}
             />
+
+            {/* Robot simulation */}
+            {robotCanvasPos && (
+              <Group
+                x={robotCanvasPos.x}
+                y={robotCanvasPos.y}
+                rotation={-simPose!.heading} // Convert CCW field heading to CW Konva rotation
+              >
+                <Rect
+                  x={-robotLengthPx / 2}
+                  y={-robotWidthPx / 2}
+                  width={robotLengthPx}
+                  height={robotWidthPx}
+                  fill="rgba(59, 130, 246, 0.4)"
+                  stroke="#3b82f6"
+                  strokeWidth={2}
+                  cornerRadius={2}
+                />
+                {/* Direction indicator (front of robot) */}
+                <Line
+                  points={[0, 0, robotLengthPx / 2, 0]}
+                  stroke="#ffffff"
+                  strokeWidth={2}
+                  opacity={0.8}
+                />
+                <Circle
+                  x={robotLengthPx / 2}
+                  y={0}
+                  radius={3}
+                  fill="#ffffff"
+                />
+              </Group>
+            )}
           </Layer>
         </Stage>
       </div>

@@ -7,6 +7,8 @@ import { FieldOverlay } from './components/FieldOverlay';
 import { useUndoRedo } from './hooks/useUndoRedo';
 import decodeImg from './fields/decode.png';
 
+import { getRobotPoseAtProgress } from './utils/pathSimulation';
+
 const POSE_COLORS = [
   '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
   '#ef4444', '#ec4899', '#84cc16', '#6366f1',
@@ -43,6 +45,10 @@ function App() {
   const [showCode, setShowCode] = useState(false);
   const [canvasSize, setCanvasSize] = useState(650);
   const containerRef = useRef<HTMLDivElement>(null);
+  
+  // Simulation state
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [simPose, setSimPose] = useState<{ x: number; y: number; heading: number } | null>(null);
 
   const [mapImage, setMapImage] = useState<HTMLImageElement | null>(() => {
     const img = new Image();
@@ -73,6 +79,49 @@ function App() {
 
   const { chains, activeChainIndex, selectedPoseId, selectedPathId } = editorState;
   const activeChain = chains[activeChainIndex];
+
+  // Simulation effect
+  useEffect(() => {
+    if (!isSimulating || activeChain.paths.length === 0) {
+      setSimPose(null);
+      return;
+    }
+
+    let lastTime = performance.now();
+    let currentProgress = 0;
+    let animationFrame: number;
+
+    const animate = (time: number) => {
+      const deltaTime = (time - lastTime) / 1000;
+      lastTime = time;
+
+      currentProgress += deltaTime * 0.5; // Speed: 1 path segment per 2 seconds
+
+      if (currentProgress >= activeChain.paths.length) {
+        setIsSimulating(false);
+        setSimPose(null);
+        return;
+      }
+
+      const pathIndex = Math.floor(currentProgress);
+      const t = currentProgress % 1;
+      const path = activeChain.paths[pathIndex];
+      
+      if (path) {
+        const startPose = activeChain.poses.find(p => p.id === path.startPoseId);
+        const endPose = activeChain.poses.find(p => p.id === path.endPoseId);
+
+        if (startPose && endPose) {
+          setSimPose(getRobotPoseAtProgress(path, startPose, endPose, t));
+        }
+      }
+
+      animationFrame = requestAnimationFrame(animate);
+    };
+
+    animationFrame = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [isSimulating, activeChain]);
 
   const updateActiveChain = useCallback((updatedChain: PathChain, selectionUpdates?: { selectedPoseId?: string | null, selectedPathId?: string | null }) => {
     const coloredPoses = assignPoseColors(updatedChain.poses, updatedChain.paths, updatedChain.startingPoseId);
@@ -264,6 +313,15 @@ function App() {
         <button onClick={undo} disabled={!canUndo} className={`text-[11px] px-2 py-0.5 rounded transition-colors ${canUndo ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`} title="Undo (Ctrl+Z)">↶</button>
         <button onClick={redo} disabled={!canRedo} className={`text-[11px] px-2 py-0.5 rounded transition-colors ${canRedo ? 'bg-gray-700 hover:bg-gray-600 text-gray-200' : 'bg-gray-800 text-gray-600 cursor-not-allowed'}`} title="Redo (Ctrl+Y)">↷</button>
         <div className="w-px h-5 bg-gray-700" />
+        <button 
+          onClick={() => {
+            setIsSimulating(!isSimulating);
+          }} 
+          className={`text-[11px] px-3 py-0.5 rounded transition-colors font-bold ${isSimulating ? 'bg-red-900 hover:bg-red-800 text-red-200' : 'bg-blue-900 hover:bg-blue-800 text-blue-200'}`}
+        >
+          {isSimulating ? 'Stop Sim' : 'Play Sim'}
+        </button>
+        <div className="w-px h-5 bg-gray-700" />
         <button onClick={() => document.getElementById('load-input')?.click()} className="text-[11px] px-2 py-0.5 bg-gray-700 hover:bg-gray-600 rounded transition-colors">Load</button>
         <input type="file" id="load-input" accept=".json" className="hidden" onChange={loadJSON} />
         <button onClick={saveJSON} className="text-[11px] px-2 py-0.5 bg-green-900 hover:bg-green-800 text-green-300 rounded transition-colors">Save</button>
@@ -348,6 +406,7 @@ function App() {
             onCreatePose={(x: number, y: number, createPath: boolean) => addPoseAtPosition(x, y, createPath)}
             onPathCreate={(endPoseId: string) => createPath(endPoseId)}
             canvasSize={canvasSize}
+            simPose={simPose}
             />
                     </div>
         <div className="bg-gray-900 border-l border-gray-800 overflow-y-auto">
