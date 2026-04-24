@@ -20,11 +20,26 @@ const initialChain: PathChain = {
   paths: [],
 };
 
+const assignPoseColors = (poses: Pose[], paths: Path[], startingPoseId?: string): Pose[] => {
+  if (!startingPoseId) return poses;
+  const coloredPoses = poses.map(w => ({ ...w }));
+  const startWp = coloredPoses.find(w => w.id === startingPoseId);
+  if (startWp) startWp.color = '#8b5cf6';
+  const poseOrder: Pose[] = [startWp!];
+  let currentPoseId = startingPoseId;
+  for (const path of paths) {
+    if (path.startPoseId === currentPoseId) {
+      const endWp = coloredPoses.find(w => w.id === (path.endPoseId || ''));
+      if (endWp && !poseOrder.some(w => w.id === endWp.id)) poseOrder.push(endWp);
+      currentPoseId = path.endPoseId || '';
+    }
+  }
+  for (const wp of coloredPoses) if (!poseOrder.some(w => w.id === wp.id)) poseOrder.push(wp);
+  poseOrder.forEach((wp, index) => { wp.color = POSE_COLORS[index % POSE_COLORS.length]; });
+  return coloredPoses;
+};
+
 function App() {
-  const [chains, setChains] = useState<PathChain[]>([initialChain]);
-  const [activeChainIndex, setActiveChainIndex] = useState(0);
-  const [selectedPoseId, setSelectedPoseId] = useState<string | null>(null);
-  const [selectedPathId, setSelectedPathId] = useState<string | null>(null);
   const [showCode, setShowCode] = useState(false);
   const [canvasSize, setCanvasSize] = useState(650);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -38,7 +53,7 @@ function App() {
   const updateCanvasSize = useCallback(() => {
     if (containerRef.current) {
       const { width, height } = containerRef.current.getBoundingClientRect();
-      const size = Math.min(width, height) - 32; // padding
+      const size = Math.min(width, height) - 32;
       setCanvasSize(Math.max(300, size));
     }
   }, []);
@@ -49,60 +64,42 @@ function App() {
     return () => window.removeEventListener('resize', updateCanvasSize);
   }, [updateCanvasSize]);
 
-  const { state: activeChain, set: setHistoryState, undo, redo, canUndo, canRedo } = useUndoRedo(activeChainIndex === 0 ? chains[0] : chains[activeChainIndex]);
+  const { state: editorState, set: setEditorState, undo, redo, canUndo, canRedo } = useUndoRedo({
+    chains: [initialChain],
+    activeChainIndex: 0,
+    selectedPoseId: null as string | null,
+    selectedPathId: null as string | null,
+  });
 
-  useEffect(() => {
-    setChains(prev => prev.map((c, i) => i === activeChainIndex ? activeChain : c));
-  }, [activeChain, activeChainIndex]);
+  const { chains, activeChainIndex, selectedPoseId, selectedPathId } = editorState;
+  const activeChain = chains[activeChainIndex];
 
-  const startPose = activeChain.startingPoseId
-    ? activeChain.poses.find(w => w.id === activeChain.startingPoseId)
-    : null;
-  const additionalPoses = activeChain.poses.filter(w => w.id !== activeChain.startingPoseId);
-
-  const assignPoseColors = useCallback((poses: Pose[], paths: Path[], startingPoseId?: string): Pose[] => {
-    if (!startingPoseId) return poses;
-    const coloredPoses = poses.map(w => ({ ...w }));
-    const startWp = coloredPoses.find(w => w.id === startingPoseId);
-    if (startWp) startWp.color = '#8b5cf6';
-    const poseOrder: Pose[] = [startWp!];
-    let currentPoseId = startingPoseId;
-    for (const path of paths) {
-      if (path.startPoseId === currentPoseId) {
-        const endWp = coloredPoses.find(w => w.id === (path.endPoseId || ''));
-        if (endWp && !poseOrder.some(w => w.id === endWp.id)) poseOrder.push(endWp);
-        currentPoseId = path.endPoseId || '';
-      }
-    }
-    for (const wp of coloredPoses) if (!poseOrder.some(w => w.id === wp.id)) poseOrder.push(wp);
-    poseOrder.forEach((wp, index) => { wp.color = POSE_COLORS[index % POSE_COLORS.length]; });
-    return coloredPoses;
-  }, []);
-
-  const updateActiveChain = useCallback((updatedChain: PathChain) => {
+  const updateActiveChain = useCallback((updatedChain: PathChain, selectionUpdates?: { selectedPoseId?: string | null, selectedPathId?: string | null }) => {
     const coloredPoses = assignPoseColors(updatedChain.poses, updatedChain.paths, updatedChain.startingPoseId);
-    setHistoryState({ ...updatedChain, poses: coloredPoses });
-  }, [setHistoryState, assignPoseColors]);
+    setEditorState(prev => ({
+      ...prev,
+      chains: prev.chains.map((c, i) => i === prev.activeChainIndex ? { ...updatedChain, poses: coloredPoses } : c),
+      ...selectionUpdates
+    }));
+  }, [setEditorState]);
+
+  const getLastPoseId = useCallback(() => {
+    if (activeChain.paths.length === 0) return activeChain.startingPoseId;
+    return activeChain.paths[activeChain.paths.length - 1].endPoseId;
+  }, [activeChain]);
 
   const selectedPose = activeChain.poses.find((w) => w.id === selectedPoseId);
   const selectedPath = activeChain.paths.find(p => p.id === selectedPathId);
+  const startPose = activeChain.startingPoseId ? activeChain.poses.find(w => w.id === activeChain.startingPoseId) : null;
+  const additionalPoses = activeChain.poses.filter(w => w.id !== activeChain.startingPoseId);
 
   const createPath = useCallback((endPoseId: string) => {
-    let startPoseId: string | undefined;
-
-    if (activeChain.paths.length === 0) {
-      startPoseId = activeChain.startingPoseId;
-    } else {
-      const lastPath = activeChain.paths[activeChain.paths.length - 1];
-      startPoseId = lastPath.endPoseId;
-    }
-
+    const startPoseId = getLastPoseId();
     if (!startPoseId || startPoseId === endPoseId) return;
 
     const existingPath = activeChain.paths.find(p => p.startPoseId === startPoseId && p.endPoseId === endPoseId);
     if (existingPath) {
-      setSelectedPathId(existingPath.id);
-      setSelectedPoseId(null);
+      setEditorState(prev => ({ ...prev, selectedPathId: existingPath.id, selectedPoseId: null }));
       return;
     }
 
@@ -114,46 +111,39 @@ function App() {
       type: 'line',
       deceleration: 'default' 
     };
-    updateActiveChain({ ...activeChain, paths: [...activeChain.paths, newPath] });
-    setSelectedPathId(newPath.id);
-    setSelectedPoseId(null);
-  }, [activeChain, updateActiveChain]);
+    updateActiveChain(
+      { ...activeChain, paths: [...activeChain.paths, newPath] },
+      { selectedPathId: newPath.id, selectedPoseId: null }
+    );
+  }, [activeChain, updateActiveChain, setEditorState, getLastPoseId]);
 
   const handlePoseClick = useCallback((id: string | null, e?: any) => {
-    if (e && e.evt && e.evt.shiftKey && id) {
+    if (e?.evt?.shiftKey && id) {
       createPath(id);
       return;
     }
-
-    setSelectedPoseId(id);
-    setSelectedPathId(null);
-  }, [createPath]);
-
+    setEditorState(prev => ({ ...prev, selectedPoseId: id, selectedPathId: null }));
+  }, [createPath, setEditorState]);
 
   const handlePathClick = useCallback((id: string | null) => {
-    setSelectedPathId(id);
-    setSelectedPoseId(null);
-  }, []);
+    setEditorState(prev => ({ ...prev, selectedPathId: id, selectedPoseId: null }));
+  }, [setEditorState]);
 
   const addPoseAtPosition = useCallback((x: number, y: number, createPathToNew: boolean = false) => {
+    const newPoseId = `pose-${Date.now()}`;
+    const newPose: Pose = { id: newPoseId, name: `Pose ${activeChain.poses.length + 1}`, x, y, heading: 0 };
+    
     if (!activeChain.startingPoseId) {
-      const newStartingPose: Pose = { id: `pose-${Date.now()}`, name: 'Pose 1', x, y };
-      updateActiveChain({ ...activeChain, startingPoseId: newStartingPose.id, poses: [...activeChain.poses, newStartingPose] });
-      setSelectedPoseId(newStartingPose.id);
+      updateActiveChain(
+        { ...activeChain, startingPoseId: newPoseId, poses: [...activeChain.poses, { ...newPose, name: 'Pose 1' }] },
+        { selectedPoseId: newPoseId }
+      );
     } else {
-      const newPoseId = `pose-${Date.now()}`;
-      const newPose: Pose = { id: newPoseId, name: `Pose ${activeChain.poses.length + 1}`, x, y, heading: 0 };
-      
       let newPaths = [...activeChain.paths];
-      if (createPathToNew) {
-        let startPoseId: string | undefined;
-        if (activeChain.paths.length === 0) {
-          startPoseId = activeChain.startingPoseId;
-        } else {
-          const lastPath = activeChain.paths[activeChain.paths.length - 1];
-          startPoseId = lastPath.endPoseId;
-        }
+      let newSelectedPathId: string | null = null;
 
+      if (createPathToNew) {
+        const startPoseId = getLastPoseId();
         if (startPoseId && startPoseId !== newPoseId) {
           const newPath: Path = { 
             id: `path-${Date.now()}`, 
@@ -164,43 +154,40 @@ function App() {
             deceleration: 'default'
           };
           newPaths.push(newPath);
-          setSelectedPathId(newPath.id);
+          newSelectedPathId = newPath.id;
         }
       }
 
-      updateActiveChain({ 
-        ...activeChain, 
-        poses: [...activeChain.poses, newPose],
-        paths: newPaths
-      });
-      
-      if (!createPathToNew) {
-        setSelectedPoseId(newPoseId);
-        setSelectedPathId(null);
-      } else {
-        setSelectedPoseId(null);
-      }
+      updateActiveChain(
+        { ...activeChain, poses: [...activeChain.poses, newPose], paths: newPaths },
+        createPathToNew 
+          ? { selectedPathId: newSelectedPathId, selectedPoseId: null }
+          : { selectedPoseId: newPoseId, selectedPathId: null }
+      );
     }
-  }, [activeChain, updateActiveChain]);
+  }, [activeChain, updateActiveChain, getLastPoseId]);
 
   const updatePose = useCallback((poseId: string, updates: Partial<Pose>) => {
     updateActiveChain({ ...activeChain, poses: activeChain.poses.map(w => w.id === poseId ? { ...w, ...updates } : w) });
   }, [activeChain, updateActiveChain]);
 
   const deletePose = useCallback((poseId: string) => {
-    const isStartingPose = poseId === activeChain.startingPoseId;
-    updateActiveChain({
-      ...activeChain,
-      startingPoseId: isStartingPose ? undefined : activeChain.startingPoseId,
-      poses: activeChain.poses.filter(w => w.id !== poseId),
-      paths: activeChain.paths.filter(p => p.startPoseId !== poseId && p.endPoseId !== poseId),
-    });
-    setSelectedPoseId(null);
+    updateActiveChain(
+      {
+        ...activeChain,
+        startingPoseId: poseId === activeChain.startingPoseId ? undefined : activeChain.startingPoseId,
+        poses: activeChain.poses.filter(w => w.id !== poseId),
+        paths: activeChain.paths.filter(p => p.startPoseId !== poseId && p.endPoseId !== poseId),
+      },
+      { selectedPoseId: null }
+    );
   }, [activeChain, updateActiveChain]);
 
   const deletePath = useCallback((pathId: string) => {
-    updateActiveChain({ ...activeChain, paths: activeChain.paths.filter(p => p.id !== pathId) });
-    setSelectedPathId(null);
+    updateActiveChain(
+      { ...activeChain, paths: activeChain.paths.filter(p => p.id !== pathId) },
+      { selectedPathId: null }
+    );
   }, [activeChain, updateActiveChain]);
 
   const updatePath = useCallback((pathId: string, updates: Partial<Path>) => {
@@ -211,7 +198,6 @@ function App() {
     const fieldPoint = canvasToPoint({ x: canvasX, y: canvasY }, canvasSize);
     updatePath(pathId, cpIndex === 1 ? { controlPoint1: fieldPoint } : { controlPoint2: fieldPoint });
   }, [updatePath, canvasSize]);
-
 
   const handlePoseHeadingChange = useCallback((id: string, heading: number) => {
     updatePose(id, { heading });
@@ -240,17 +226,25 @@ function App() {
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target?.result as string);
-        if (data.chains) { setChains(data.chains); setActiveChainIndex(0); setSelectedPoseId(null); setSelectedPathId(null); }
+        if (data.chains?.length > 0) {
+          setEditorState({
+            chains: data.chains,
+            activeChainIndex: 0,
+            selectedPoseId: null,
+            selectedPathId: null
+          });
+        }
       } catch (err) { console.error('Failed to load JSON:', err); }
     };
     reader.readAsText(file);
     event.target.value = '';
-  }, []);
+  }, [setEditorState]);
 
   const clearChain = useCallback(() => {
-    updateActiveChain({ ...activeChain, startingPoseId: undefined, poses: [], paths: [] });
-    setSelectedPoseId(null);
-    setSelectedPathId(null);
+    updateActiveChain(
+      { ...activeChain, startingPoseId: undefined, poses: [], paths: [] },
+      { selectedPoseId: null, selectedPathId: null }
+    );
   }, [activeChain, updateActiveChain]);
 
   useEffect(() => {

@@ -1,29 +1,34 @@
 import { useState, useCallback } from 'react';
-import { PathChain } from '../types';
 
 const MAX_HISTORY = 200;
 
-interface HistoryState {
-  past: PathChain[];
-  present: PathChain;
-  future: PathChain[];
+export interface UndoRedoState<T> {
+  past: T[];
+  present: T;
+  future: T[];
 }
 
-export const useUndoRedo = (initialState: PathChain) => {
-  const [history, setHistory] = useState<HistoryState>({
+export const useUndoRedo = <T>(initialState: T) => {
+  const [history, setHistory] = useState<UndoRedoState<T>>({
     past: [],
     present: initialState,
     future: [],
   });
 
-  const set = useCallback((newPresent: PathChain) => {
+  const set = useCallback((newPresent: T | ((prev: T) => T)) => {
     setHistory((prev) => {
+      const resolvedPresent = typeof newPresent === 'function' 
+        ? (newPresent as Function)(prev.present) 
+        : newPresent;
+
+      if (resolvedPresent === prev.present) return prev;
+
       const newPast = [...prev.past, prev.present];
       if (newPast.length > MAX_HISTORY) newPast.shift();
 
       return {
         past: newPast,
-        present: newPresent,
+        present: resolvedPresent,
         future: [],
       };
     });
