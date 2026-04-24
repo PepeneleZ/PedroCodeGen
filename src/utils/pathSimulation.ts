@@ -96,3 +96,163 @@ export const getRobotPoseAtProgress = (
 
   return { ...pos, heading };
 };
+
+/**
+ * Calculates the length of a path segment using integration.
+ */
+export const getPathLength = (
+  path: Path,
+  startPose: Pose,
+  endPose: Pose,
+  samples: number = 20
+): number => {
+  let length = 0;
+  let prevPos = startPose;
+
+  for (let i = 1; i <= samples; i++) {
+    const t = i / samples;
+    let currentPos: Point;
+    if (path.type === 'curve' && path.controlPoint1 && path.controlPoint2) {
+      currentPos = getBezierPoint(startPose, path.controlPoint1, path.controlPoint2, endPose, t);
+    } else {
+      currentPos = getLinePoint(startPose, endPose, t);
+    }
+    const dx = currentPos.x - prevPos.x;
+    const dy = currentPos.y - prevPos.y;
+    length += Math.sqrt(dx * dx + dy * dy);
+    prevPos = { ...prevPos, ...currentPos };
+  }
+
+  return length;
+};
+
+export interface SimState {
+  pathIndex: number;
+  t: number;
+  currentVelocity: number;
+  distanceTravelledInPath: number;
+  currentHeading: number;
+}
+
+/**
+ * Updates the simulation state based on time delta and physical constraints.
+ */
+export const updateSimState = (
+  activeChain: { paths: Path[]; poses: Pose[] },
+  settings: {
+    maxVelocity: number;
+    maxAcceleration: number;
+    maxDeceleration: number;
+    angularVelocity: number;
+    xVelocity: number;
+    yVelocity: number;
+    frictionCoefficient: number;
+  },
+  prevState: SimState,
+  deltaTime: number
+): SimState => {
+  let { pathIndex, t, currentVelocity, distanceTravelledInPath, currentHeading } = prevState;
+
+  if (pathIndex >= activeChain.paths.length) {
+    return prevState;
+  }
+
+  const path = activeChain.paths[pathIndex];
+  const startPose = activeChain.poses.find(p => p.id === path.startPoseId)!;
+  const endPose = activeChain.poses.find(p => p.id === path.endPoseId)!;
+  
+  const pathLength = getPathLength(path, startPose, endPose);
+
+  // 1. Pre-path rotation: If at the start (t=0), ensure we are at the correct start heading
+  const startTargetHeading = getRobotPoseAtProgress(path, startPose, endPose, 0).heading;
+  let startHeadingDiff = startTargetHeading - currentHeading;
+  while (startHeadingDiff > 180) startHeadingDiff -= 360;
+  while (startHeadingDiff < -180) startHeadingDiff += 360;
+
+  const maxTurn = settings.angularVelocity * 180 * deltaTime;
+
+  if (t === 0 && Math.abs(startHeadingDiff) > 1.0) {
+    let nextHeading = currentHeading + Math.sign(startHeadingDiff) * Math.min(Math.abs(startHeadingDiff), maxTurn);
+    return {
+      ...prevState,
+      currentHeading: normalizeAngle(nextHeading),
+      currentVelocity: 0 // Stand still while rotating at start
+    };
+  }
+  
+  // 2. Translational Movement
+  const translationalMax = Math.min(settings.maxVelocity, Math.sqrt(settings.xVelocity * settings.xVelocity + settings.yVelocity * settings.yVelocity));
+  
+  let targetVelocity = translationalMax;
+  if (path.velocityConstraint) {
+    targetVelocity = Math.min(targetVelocity, path.velocityConstraint);
+  }
+
+  // Deceleration at the end of the chain
+  const remainingDistanceInChain = (activeChain.paths.length - pathIndex - 1) * 10 + (pathLength - distanceTravelledInPath);
+  const effectiveDecel = settings.maxDeceleration * (1 - settings.frictionCoefficient * 0.5);
+  const stopDistance = (currentVelocity * currentVelocity) / (2 * effectiveDecel);
+  
+  if (remainingDistanceInChain < stopDistance) {
+    targetVelocity = 0;
+  }
+
+  let newVelocity = currentVelocity;
+  const effectiveAccel = settings.maxAcceleration * (1 - settings.frictionCoefficient * 0.2);
+  
+  if (currentVelocity < targetVelocity) {
+    newVelocity = Math.min(targetVelocity, currentVelocity + effectiveAccel * deltaTime);
+  } else if (currentVelocity > targetVelocity) {
+    newVelocity = Math.max(targetVelocity, currentVelocity - effectiveDecel * deltaTime);
+  }
+
+  const distanceStep = newVelocity * deltaTime;
+  const newDistanceTravelled = distanceTravelledInPath + distanceStep;
+  let newT = newDistanceTravelled / pathLength;
+
+  if (newT > 1) newT = 1;
+
+  // 3. Update Heading during movement
+  const targetPoseAtNewT = getRobotPoseAtProgress(path, startPose, endPose, newT);
+  const targetHeading = targetPoseAtNewT.heading;
+  
+  let headingDiff = targetHeading - currentHeading;
+  while (headingDiff > 180) headingDiff -= 360;
+  while (headingDiff < -180) headingDiff += 360;
+  
+  let newHeading = currentHeading + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), maxTurn);
+  newHeading = normalizeAngle(newHeading);
+
+  // 4. End-of-path transition
+  let finalPathIndex = pathIndex;
+  let finalT = newT;
+  let finalDistanceTravelled = newDistanceTravelled;
+  let finalVelocity = newVelocity;
+
+  if (newT >= 1) {
+    // We reached the end of the segment. Must finish rotation before moving to next.
+    let finalHeadingDiff = targetHeading - newHeading;
+    while (finalHeadingDiff > 180) finalHeadingDiff -= 360;
+    while (finalHeadingDiff < -180) finalHeadingDiff += 360;
+
+    if (Math.abs(finalHeadingDiff) < 1.0) {
+      // Finished turn, move to next path
+      finalPathIndex++;
+      finalT = 0;
+      finalDistanceTravelled = 0;
+    } else {
+      // Still turning at the end of the path
+      finalT = 1;
+      finalVelocity = 0;
+      finalDistanceTravelled = pathLength;
+    }
+  }
+
+  return {
+    pathIndex: finalPathIndex,
+    t: finalT,
+    currentVelocity: finalVelocity,
+    distanceTravelledInPath: finalDistanceTravelled,
+    currentHeading: newHeading
+  };
+};

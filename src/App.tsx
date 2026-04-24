@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { PathChain, Pose, Path } from './types';
+import { PathChain, Pose, Path, SimulationSettings } from './types';
 import { Field } from './components/Field';
 import { CodeGenerator } from './components/CodeGenerator';
 import { canvasToPoint } from './utils/coordinates';
@@ -7,12 +7,24 @@ import { FieldOverlay } from './components/FieldOverlay';
 import { useUndoRedo } from './hooks/useUndoRedo';
 import decodeImg from './fields/decode.png';
 
-import { getRobotPoseAtProgress } from './utils/pathSimulation';
+import { getRobotPoseAtProgress, updateSimState, SimState } from './utils/pathSimulation';
 
 const POSE_COLORS = [
   '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
   '#ef4444', '#ec4899', '#84cc16', '#6366f1',
 ];
+
+const defaultSimulationSettings: SimulationSettings = {
+  xVelocity: 75,
+  yVelocity: 65,
+  angularVelocity: 1,
+  maxVelocity: 40,
+  maxAcceleration: 30,
+  maxDeceleration: 30,
+  frictionCoefficient: 0.1,
+  robotWidth: 16,
+  robotHeight: 16,
+};
 
 const initialChain: PathChain = {
   id: 'chain-0',
@@ -20,6 +32,7 @@ const initialChain: PathChain = {
   startingPoseId: '',
   poses: [],
   paths: [],
+  simulationSettings: defaultSimulationSettings,
 };
 
 const assignPoseColors = (poses: Pose[], paths: Path[], startingPoseId?: string): Pose[] => {
@@ -43,6 +56,9 @@ const assignPoseColors = (poses: Pose[], paths: Path[], startingPoseId?: string)
 
 function App() {
   const [showCode, setShowCode] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
+  const [robotConfigOpen, setRobotConfigOpen] = useState(false);
+  const [simConfigOpen, setSimConfigOpen] = useState(false);
   const [canvasSize, setCanvasSize] = useState(650);
   const containerRef = useRef<HTMLDivElement>(null);
   
@@ -88,32 +104,39 @@ function App() {
     }
 
     let lastTime = performance.now();
-    let currentProgress = 0;
+    const initialPath = activeChain.paths[0];
+    const initialStartPose = activeChain.poses.find(p => p.id === initialPath?.startPoseId);
+    
+    let simState: SimState = {
+      pathIndex: 0,
+      t: 0,
+      currentVelocity: 0,
+      distanceTravelledInPath: 0,
+      currentHeading: initialStartPose?.heading || 0
+    };
     let animationFrame: number;
 
     const animate = (time: number) => {
       const deltaTime = (time - lastTime) / 1000;
       lastTime = time;
 
-      currentProgress += deltaTime * 0.5; // Speed: 1 path segment per 2 seconds
+      const settings = activeChain.simulationSettings || defaultSimulationSettings;
+      
+      simState = updateSimState(activeChain, settings, simState, deltaTime);
 
-      if (currentProgress >= activeChain.paths.length) {
+      if (simState.pathIndex >= activeChain.paths.length) {
         setIsSimulating(false);
         setSimPose(null);
         return;
       }
 
-      const pathIndex = Math.floor(currentProgress);
-      const t = currentProgress % 1;
-      const path = activeChain.paths[pathIndex];
-      
-      if (path) {
-        const startPose = activeChain.poses.find(p => p.id === path.startPoseId);
-        const endPose = activeChain.poses.find(p => p.id === path.endPoseId);
+      const path = activeChain.paths[simState.pathIndex];
+      const startPose = activeChain.poses.find(p => p.id === path.startPoseId);
+      const endPose = activeChain.poses.find(p => p.id === path.endPoseId);
 
-        if (startPose && endPose) {
-          setSimPose(getRobotPoseAtProgress(path, startPose, endPose, t));
-        }
+      if (startPose && endPose) {
+        const poseAtT = getRobotPoseAtProgress(path, startPose, endPose, simState.t);
+        setSimPose({ ...poseAtT, heading: simState.currentHeading });
       }
 
       animationFrame = requestAnimationFrame(animate);
@@ -136,6 +159,16 @@ function App() {
     if (activeChain.paths.length === 0) return activeChain.startingPoseId;
     return activeChain.paths[activeChain.paths.length - 1].endPoseId;
   }, [activeChain]);
+
+  const updateSimulationSettings = useCallback((updates: Partial<SimulationSettings>) => {
+    updateActiveChain({
+      ...activeChain,
+      simulationSettings: {
+        ...(activeChain.simulationSettings || defaultSimulationSettings),
+        ...updates,
+      },
+    });
+  }, [activeChain, updateActiveChain]);
 
   const selectedPose = activeChain.poses.find((w) => w.id === selectedPoseId);
   const selectedPath = activeChain.paths.find(p => p.id === selectedPathId);
@@ -329,7 +362,10 @@ function App() {
         <button onClick={() => setShowCode(true)} className="text-[11px] px-2 py-0.5 bg-blue-700 hover:bg-blue-600 text-white rounded transition-colors">Code</button>
         <div className="w-px h-5 bg-gray-700" />
         <FieldOverlay onImageSelect={handlePresetImageSelect} />
-        <button onClick={clearChain} className="text-[11px] px-2 py-0.5 bg-red-900 hover:bg-red-800 text-red-300 rounded transition-colors ml-auto">Clear</button>
+        <div className="ml-auto flex items-center gap-2">
+          <button onClick={() => setShowSettings(true)} className="text-[11px] px-2 py-0.5 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded transition-colors">Settings</button>
+          <button onClick={clearChain} className="text-[11px] px-2 py-0.5 bg-red-900 hover:bg-red-800 text-red-300 rounded transition-colors">Clear</button>
+        </div>
       </header>
 
       <div className="flex-1 grid grid-cols-[260px,1fr,260px] lg:grid-cols-[300px,1fr,300px] overflow-hidden">
@@ -373,7 +409,7 @@ function App() {
                   const startPose = activeChain.poses.find(w => w.id === path.startPoseId);
                   const endPose = activeChain.poses.find(w => w.id === path.endPoseId);
                   return (
-                    <li key={path.id} onClick={() => handlePathClick(path.id)} className={`p-2 border rounded cursor-pointer transition-colors ${selectedPathId === path.id ? 'bg-blue-900/30 border-blue-500' : 'border-gray-700 bg-gray-800 hover:border-gray-600'}`}>
+                    <li key={path.id} onClick={() => handlePathClick(path.id)} className={`p-2 border rounded cursor-pointer transition-colors ${selectedPathId === path.id ? 'bg-blue-900/30 border-blue-500' : 'border-gray-800 hover:border-gray-600'}`}>
                       <div className="flex justify-between items-start gap-2">
                         <div className="flex-1 min-w-0"><div className="text-xs font-mono text-gray-300">{startPose?.name || '?'} → {endPose?.name || '?'}</div></div>
                         <button onClick={(e) => { e.stopPropagation(); deletePath(path.id); }} className="text-xs text-red-400">✕</button>
@@ -410,6 +446,19 @@ function App() {
             />
                     </div>
         <div className="bg-gray-900 border-l border-gray-800 overflow-y-auto">
+          {!selectedPose && !selectedPath && (
+            <div className="p-8 text-center space-y-4">
+              <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-sm font-medium text-gray-300">No Selection</h3>
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Select a pose or path on the field to edit its properties.
+              </p>
+            </div>
+          )}
           {selectedPose && (
             <div className="p-4 space-y-4">
               <div className="text-xs font-semibold text-white uppercase tracking-wider">Pose Properties</div>
@@ -493,7 +542,7 @@ function App() {
                   </div>
                 </div>
               )}
-              <div className="border-t border-gray-700" />
+              <div className="border-t border-gray-800" />
               <div>
                 <label className="text-xs text-gray-400 font-mono block mb-1">Deceleration</label>
                 <select value={selectedPath.deceleration || 'default'} onChange={(e) => updatePath(selectedPathId!, { deceleration: e.target.value as any })} className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none">
@@ -516,7 +565,7 @@ function App() {
                   )}
                 </div>
               )}
-              <div className="border-t border-gray-700 pt-4">
+              <div className="border-t border-gray-800 pt-4">
                 <div className="text-xs text-gray-300 font-semibold mb-3 uppercase tracking-wider">Constraints</div>
                 <div className="space-y-3">
                   <div><label className="text-xs text-gray-400 font-mono block mb-1">Timeout (ms)</label><input type="number" value={selectedPath.timeoutConstraint || ''} onChange={(e) => updatePath(selectedPathId!, { timeoutConstraint: e.target.value ? parseFloat(e.target.value) : undefined })} placeholder="Optional" className="w-full px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs text-white focus:border-blue-500 outline-none" /></div>
@@ -714,6 +763,133 @@ function App() {
                 <button onClick={() => setShowCode(false)} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs transition-colors">Close</button>
               </div>
               <div className="p-4 overflow-y-auto"><CodeGenerator pathChain={activeChain} /></div>
+            </div>
+          </div>
+        )}
+
+        {showSettings && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-6">
+            <div className="bg-gray-900 border border-gray-800 rounded-lg w-full max-w-md flex flex-col">
+              <div className="p-4 border-b border-gray-800 flex justify-between items-center bg-gray-900 rounded-t-lg">
+                <h3 className="text-sm font-semibold text-white">Simulation Settings</h3>
+                <button onClick={() => setShowSettings(false)} className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-white rounded text-xs transition-colors">Close</button>
+              </div>
+              <div className="p-4 overflow-y-auto space-y-4">
+                {/* Robot Configuration Section */}
+                <div className="border border-gray-800 rounded-lg overflow-hidden">
+                  <button 
+                    onClick={() => setRobotConfigOpen(!robotConfigOpen)}
+                    className="w-full flex items-center justify-between p-3 bg-gray-800 hover:bg-gray-700 transition-colors"
+                  >
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">Robot Configuration</span>
+                    <span className="text-gray-400">{robotConfigOpen ? '▼' : '▶'}</span>
+                  </button>
+                  {robotConfigOpen && (
+                    <div className="p-4 bg-gray-900 space-y-4 border-t border-gray-800">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">Robot Width (max 32")</label>
+                          <input type="number" max="32" value={activeChain.simulationSettings?.robotWidth ?? 16} onChange={(e) => updateSimulationSettings({ robotWidth: Math.min(32, parseFloat(e.target.value) || 0) })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">Robot Height (max 32")</label>
+                          <input type="number" max="32" value={activeChain.simulationSettings?.robotHeight ?? 16} onChange={(e) => updateSimulationSettings({ robotHeight: Math.min(32, parseFloat(e.target.value) || 0) })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 block mb-1.5 font-medium">Robot Photo</label>
+                        <div className="flex items-center gap-3">
+                          {activeChain.simulationSettings?.robotImageUrl && (
+                            <img src={activeChain.simulationSettings.robotImageUrl} className="w-10 h-10 object-contain rounded bg-gray-800 border border-gray-700" alt="Robot" />
+                          )}
+                          <input 
+                            type="file" 
+                            accept="image/*" 
+                            className="hidden" 
+                            id="robot-image-upload" 
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) {
+                                const reader = new FileReader();
+                                reader.onload = (event) => {
+                                  updateSimulationSettings({ robotImageUrl: event.target?.result as string });
+                                };
+                                reader.readAsDataURL(file);
+                              }
+                            }}
+                          />
+                          <button 
+                            onClick={() => document.getElementById('robot-image-upload')?.click()}
+                            className="text-[10px] px-3 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-700 transition-colors"
+                          >
+                            {activeChain.simulationSettings?.robotImageUrl ? 'Change Photo' : 'Upload Photo'}
+                          </button>
+                          {activeChain.simulationSettings?.robotImageUrl && (
+                            <button 
+                              onClick={() => updateSimulationSettings({ robotImageUrl: undefined })}
+                              className="text-[10px] px-3 py-2 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded border border-red-900/30 transition-colors"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Simulation Settings Section */}
+                <div className="border border-gray-800 rounded-lg overflow-hidden">
+                  <button 
+                    onClick={() => setSimConfigOpen(!simConfigOpen)}
+                    className="w-full flex items-center justify-between p-3 bg-gray-800 hover:bg-gray-700 transition-colors"
+                  >
+                    <span className="text-xs font-bold text-white uppercase tracking-wider">Simulation Settings</span>
+                    <span className="text-gray-400">{simConfigOpen ? '▼' : '▶'}</span>
+                  </button>
+                  {simConfigOpen && (
+                    <div className="p-4 bg-gray-900 space-y-4 border-t border-gray-800">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">X Velocity (in/s)</label>
+                          <input type="number" value={activeChain.simulationSettings?.xVelocity ?? 60} onChange={(e) => updateSimulationSettings({ xVelocity: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">Y Velocity (in/s)</label>
+                          <input type="number" value={activeChain.simulationSettings?.yVelocity ?? 60} onChange={(e) => updateSimulationSettings({ yVelocity: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">Angular Velocity (π rad/s)</label>
+                          <input type="number" step="0.1" value={activeChain.simulationSettings?.angularVelocity ?? 1} onChange={(e) => updateSimulationSettings({ angularVelocity: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">Max Velocity (in/s)</label>
+                          <input type="number" value={activeChain.simulationSettings?.maxVelocity ?? 80} onChange={(e) => updateSimulationSettings({ maxVelocity: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">Max Accel (in/s²)</label>
+                          <input type="number" value={activeChain.simulationSettings?.maxAcceleration ?? 60} onChange={(e) => updateSimulationSettings({ maxAcceleration: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-400 block mb-1.5 font-medium">Max Decel (in/s²)</label>
+                          <input type="number" value={activeChain.simulationSettings?.maxDeceleration ?? 60} onChange={(e) => updateSimulationSettings({ maxDeceleration: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-gray-400 block mb-1.5 font-medium">Friction Coefficient</label>
+                        <input type="number" step="0.01" value={activeChain.simulationSettings?.frictionCoefficient ?? 0.3} onChange={(e) => updateSimulationSettings({ frictionCoefficient: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className="p-4 border-t border-gray-800 bg-gray-900/50 rounded-b-lg flex justify-end">
+                <button onClick={() => setShowSettings(false)} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-xs font-semibold transition-colors">Done</button>
+              </div>
             </div>
           </div>
         )}

@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState, useEffect } from 'react';
 import { Stage, Layer, Rect, Line, Image as KonvaImage, Group, Circle } from 'react-konva';
 import { PathChain } from '../types';
 import { canvasToPoint, pointToCanvas, clampToFieldX, clampToFieldY, inchesToPixels } from '../utils/coordinates';
@@ -43,12 +43,28 @@ export const Field = ({
   const stageRef = useRef<any>(null);
 
   // Robot dimensions in inches
-  const ROBOT_WIDTH = 18;
-  const ROBOT_LENGTH = 18;
+  const settings = pathChain.simulationSettings;
+  const robotWidth = settings?.robotWidth ?? 18;
+  const robotHeight = settings?.robotHeight ?? 18;
+
+  const [robotImageObj, setRobotImageObj] = useState<HTMLImageElement | null>(null);
+
+  // Load custom robot image
+  useEffect(() => {
+    if (settings?.robotImageUrl) {
+      const img = new Image();
+      img.src = settings.robotImageUrl;
+      img.onload = () => {
+        setRobotImageObj(img);
+      };
+    } else {
+      setRobotImageObj(null);
+    }
+  }, [settings?.robotImageUrl]);
 
   const robotCanvasPos = simPose ? pointToCanvas(simPose, canvasSize) : null;
-  const robotWidthPx = inchesToPixels(ROBOT_WIDTH, canvasSize);
-  const robotLengthPx = inchesToPixels(ROBOT_LENGTH, canvasSize);
+  const robotWidthPx = inchesToPixels(robotWidth, canvasSize);
+  const robotHeightPx = inchesToPixels(robotHeight, canvasSize);
 
   // Check if click is near a pose
   const getPoses = useCallback(() => {
@@ -209,25 +225,35 @@ export const Field = ({
                 y={robotCanvasPos.y}
                 rotation={-simPose!.heading} // Convert CCW field heading to CW Konva rotation
               >
-                <Rect
-                  x={-robotLengthPx / 2}
-                  y={-robotWidthPx / 2}
-                  width={robotLengthPx}
-                  height={robotWidthPx}
-                  fill="rgba(59, 130, 246, 0.4)"
-                  stroke="#3b82f6"
-                  strokeWidth={2}
-                  cornerRadius={2}
-                />
+                {robotImageObj ? (
+                  <KonvaImage
+                    image={robotImageObj}
+                    x={-robotHeightPx / 2}
+                    y={-robotWidthPx / 2}
+                    width={robotHeightPx}
+                    height={robotWidthPx}
+                  />
+                ) : (
+                  <Rect
+                    x={-robotHeightPx / 2}
+                    y={-robotWidthPx / 2}
+                    width={robotHeightPx}
+                    height={robotWidthPx}
+                    fill="rgba(59, 130, 246, 0.4)"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    cornerRadius={2}
+                  />
+                )}
                 {/* Direction indicator (front of robot) */}
                 <Line
-                  points={[0, 0, robotLengthPx / 2, 0]}
+                  points={[0, 0, robotHeightPx / 2, 0]}
                   stroke="#ffffff"
                   strokeWidth={2}
                   opacity={0.8}
                 />
                 <Circle
-                  x={robotLengthPx / 2}
+                  x={robotHeightPx / 2}
                   y={0}
                   radius={3}
                   fill="#ffffff"

@@ -18,6 +18,20 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
 
     const lines: string[] = [];
 
+    if (pathChain.simulationSettings) {
+      lines.push('/*');
+      lines.push('  Simulation Settings:');
+      lines.push(`  Max Velocity: ${pathChain.simulationSettings.maxVelocity} in/s`);
+      lines.push(`  Max Acceleration: ${pathChain.simulationSettings.maxAcceleration} in/s²`);
+      lines.push(`  Max Deceleration: ${pathChain.simulationSettings.maxDeceleration} in/s²`);
+      lines.push(`  X Velocity: ${pathChain.simulationSettings.xVelocity} in/s`);
+      lines.push(`  Y Velocity: ${pathChain.simulationSettings.yVelocity} in/s`);
+      lines.push(`  Angular Velocity: ${pathChain.simulationSettings.angularVelocity}π rad/s`);
+      lines.push(`  Friction Coefficient: ${pathChain.simulationSettings.frictionCoefficient}`);
+      lines.push('*/');
+      lines.push('');
+    }
+
     const poseVarNames: Record<string, string> = {};
     poses.forEach((wp, i) => {
       const varName = (wp.name || `p${i}`).toLowerCase().replace(/[^a-zA-Z0-9_]/g, '_').replace(/^(\d)/, '_$1');

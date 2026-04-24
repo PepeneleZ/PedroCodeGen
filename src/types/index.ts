@@ -52,12 +52,26 @@ export interface Path {
   callbacks?: Callback[];
 }
 
+export interface SimulationSettings {
+  xVelocity: number; // in/s
+  yVelocity: number; // in/s
+  angularVelocity: number; // π rad/s
+  maxVelocity: number; // in/s
+  maxAcceleration: number; // in/s²
+  maxDeceleration: number; // in/s²
+  frictionCoefficient: number;
+  robotWidth: number; // inches
+  robotHeight: number; // inches
+  robotImageUrl?: string; // Data URL or URL
+}
+
 export interface PathChain {
   id: string;
   name: string;
   startingPoseId?: string;
   poses: Pose[];
   paths: Path[];
+  simulationSettings?: SimulationSettings;
 }
 
 // Keep ControlPoint as an alias for compatibility in components
