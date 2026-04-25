@@ -129,7 +129,9 @@ function App() {
         currentVelocity: 0,
         distanceTravelledInPath: 0,
         currentHeading: initialStartPose?.heading || 0,
-        totalTime: 0
+        totalTime: 0,
+        waitRemaining: 0,
+        waitingPosition: 'none'
       };
       lastTimeRef.current = performance.now();
     }
@@ -976,6 +978,33 @@ function App() {
                       <div>
                         <label className="text-xs text-gray-400 block mb-1.5 font-medium">Friction Coefficient</label>
                         <input type="number" step="0.01" value={activeChain.simulationSettings?.frictionCoefficient ?? 0.3} onChange={(e) => updateSimulationSettings({ frictionCoefficient: parseFloat(e.target.value) || 0 })} className="w-full text-xs px-3 py-2 bg-gray-800 border border-gray-700 rounded text-white focus:border-blue-500 outline-none transition-all" />
+                      </div>
+
+                      <div className="border-t border-gray-800 pt-4 mt-4 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs text-gray-400 font-medium">Show Ghost Paths</label>
+                          <input type="checkbox" checked={activeChain.simulationSettings?.showGhostPaths ?? false} onChange={(e) => updateSimulationSettings({ showGhostPaths: e.target.checked })} className="w-4 h-4 rounded bg-gray-800 border-gray-700 text-blue-600 focus:ring-blue-500" />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs text-gray-400 font-medium">Show Onion Layers</label>
+                          <input type="checkbox" checked={activeChain.simulationSettings?.showOnionLayers ?? false} onChange={(e) => updateSimulationSettings({ showOnionLayers: e.target.checked })} className="w-4 h-4 rounded bg-gray-800 border-gray-700 text-blue-600 focus:ring-blue-500" />
+                        </div>
+                        {activeChain.simulationSettings?.showOnionLayers && (
+                          <div className="grid grid-cols-2 gap-4 pl-4">
+                            <div>
+                              <label className="text-[10px] text-gray-500 block mb-1">Spacing (in)</label>
+                              <input type="number" value={activeChain.simulationSettings?.onionLayerSpacing ?? 10} onChange={(e) => updateSimulationSettings({ onionLayerSpacing: parseFloat(e.target.value) || 10 })} className="w-full text-xs px-2 py-1 bg-gray-800 border border-gray-700 rounded text-white outline-none" />
+                            </div>
+                            <div>
+                              <label className="text-[10px] text-gray-500 block mb-1">Color</label>
+                              <input type="color" value={activeChain.simulationSettings?.onionColor ?? '#dc2626'} onChange={(e) => updateSimulationSettings({ onionColor: e.target.value })} className="w-full h-7 bg-gray-800 border border-gray-700 rounded cursor-pointer" />
+                            </div>
+                          </div>
+                        )}
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs text-gray-400 font-medium">Show Heading Arrow</label>
+                          <input type="checkbox" checked={activeChain.simulationSettings?.showHeadingArrow ?? false} onChange={(e) => updateSimulationSettings({ showHeadingArrow: e.target.checked })} className="w-4 h-4 rounded bg-gray-800 border-gray-700 text-blue-600 focus:ring-blue-500" />
+                        </div>
                       </div>
                     </div>
                   )}

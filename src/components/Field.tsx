@@ -1,8 +1,9 @@
-import { useRef, useCallback, useState, useEffect } from 'react';
-import { Stage, Layer, Rect, Line, Image as KonvaImage, Group, Circle } from 'react-konva';
+import { useRef, useCallback, useState, useEffect, useMemo } from 'react';
+import { Stage, Layer, Rect, Line, Image as KonvaImage, Group, Circle, Arrow } from 'react-konva';
 import { PathChain } from '../types';
 import { canvasToPoint, pointToCanvas, clampToFieldX, clampToFieldY, inchesToPixels } from '../utils/coordinates';
 import { PathChainComponent } from './PathChain';
+import { generateGhostPathPoints, generateOnionLayers } from '../utils/pathSimulation';
 
 interface FieldProps {
   pathChain: PathChain;
@@ -65,6 +66,22 @@ export const Field = ({
   const robotCanvasPos = simPose ? pointToCanvas(simPose, canvasSize) : null;
   const robotWidthPx = inchesToPixels(robotWidth, canvasSize);
   const robotHeightPx = inchesToPixels(robotHeight, canvasSize);
+
+  // Ghost path points
+  const ghostPathPoints = useMemo(() => {
+    if (!settings?.showGhostPaths || pathChain.paths.length === 0) return [];
+    const pts = generateGhostPathPoints(pathChain, settings as any);
+    return pts.flatMap(p => {
+      const cp = pointToCanvas(p, canvasSize);
+      return [cp.x, cp.y];
+    });
+  }, [pathChain, settings, canvasSize]);
+
+  // Onion layers
+  const onionLayers = useMemo(() => {
+    if (!settings?.showOnionLayers || pathChain.paths.length === 0) return [];
+    return generateOnionLayers(pathChain, settings as any, settings.onionLayerSpacing || 10);
+  }, [pathChain, settings]);
 
   // Check if click is near a pose
   const getPoses = useCallback(() => {
@@ -203,6 +220,34 @@ export const Field = ({
             {/* Grid */}
             {gridLines}
 
+            {/* Ghost path */}
+            {settings?.showGhostPaths && ghostPathPoints.length > 0 && (
+              <Line
+                points={ghostPathPoints}
+                stroke="#a78bfa"
+                strokeWidth={2}
+                opacity={0.3}
+                dash={[5, 5]}
+              />
+            )}
+
+            {/* Onion layers */}
+            {settings?.showOnionLayers && onionLayers.map((layer, idx) => {
+              const canvasCorners = layer.corners.flatMap(p => {
+                const cp = pointToCanvas(p, canvasSize);
+                return [cp.x, cp.y];
+              });
+              return (
+                <Line
+                  key={`onion-${idx}`}
+                  points={[...canvasCorners, canvasCorners[0], canvasCorners[1]]}
+                  stroke={settings.onionColor || "#dc2626"}
+                  strokeWidth={1}
+                  opacity={0.4}
+                />
+              );
+            })}
+
             {/* Path chain */}
             <PathChainComponent
               pathChain={pathChain}
@@ -245,19 +290,34 @@ export const Field = ({
                     cornerRadius={2}
                   />
                 )}
-                {/* Direction indicator (front of robot) */}
-                <Line
-                  points={[0, 0, robotHeightPx / 2, 0]}
-                  stroke="#ffffff"
-                  strokeWidth={2}
-                  opacity={0.8}
-                />
-                <Circle
-                  x={robotHeightPx / 2}
-                  y={0}
-                  radius={3}
-                  fill="#ffffff"
-                />
+                
+                {/* Heading Arrow */}
+                {settings?.showHeadingArrow ? (
+                  <Arrow
+                    points={[0, 0, Math.max(robotHeightPx, 40), 0]}
+                    pointerLength={10}
+                    pointerWidth={10}
+                    fill="#ffffff"
+                    stroke="#ffffff"
+                    strokeWidth={2}
+                    opacity={0.9}
+                  />
+                ) : (
+                  <>
+                    <Line
+                      points={[0, 0, robotHeightPx / 2, 0]}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                      opacity={0.8}
+                    />
+                    <Circle
+                      x={robotHeightPx / 2}
+                      y={0}
+                      radius={3}
+                      fill="#ffffff"
+                    />
+                  </>
+                )}
               </Group>
             )}
           </Layer>
