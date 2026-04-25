@@ -100,7 +100,7 @@ export const getPathLength = (
   path: Path,
   startPose: Pose,
   endPose: Pose,
-  samples: number = 20
+  samples: number = 50
 ): number => {
   let length = 0;
   let prevPos = startPose;
@@ -157,63 +157,71 @@ export const updateSimState = (
   // 1. Handle Wait Segments
   if (waitRemaining > 0) {
     const waitStep = Math.min(waitRemaining, deltaTime);
+    const newWaitRemaining = waitRemaining - waitStep;
+    
+    // If wait just finished, handle leftover deltaTime
+    if (newWaitRemaining <= 0 && deltaTime > waitStep) {
+      const leftover = deltaTime - waitStep;
+      const intermediateState = {
+        ...prevState,
+        waitRemaining: 0,
+        totalTime: prevState.totalTime + waitStep
+      };
+      // Recursively call to start the next state with leftover time
+      return updateSimState(activeChain, settings, intermediateState, leftover);
+    }
+
     return {
       ...prevState,
-      waitRemaining: waitRemaining - waitStep,
+      waitRemaining: newWaitRemaining,
       totalTime: prevState.totalTime + deltaTime
     };
   }
 
-  // If we just finished waiting 'before', we start moving.
-  // If we just finished waiting 'after', we move to next path.
+  // Handle transition after waitAfter
   if (waitingPosition === 'after') {
-    return {
+    const newState = {
       ...prevState,
       pathIndex: pathIndex + 1,
       t: 0,
       currentVelocity: 0,
       distanceTravelledInPath: 0,
-      waitingPosition: 'none',
-      totalTime: prevState.totalTime + deltaTime
+      waitingPosition: 'none'
     };
+    return updateSimState(activeChain, settings, newState, deltaTime);
   }
 
-  // Initialize waitBefore if we are at start of path
+  // Initialize waitBefore
   if (t === 0 && waitingPosition === 'none') {
     const waitBeforeMs = path.waitBeforeMs || path.waitBefore?.durationMs || 0;
     if (waitBeforeMs > 0) {
-      return {
-        ...prevState,
-        waitRemaining: waitBeforeMs / 1000,
-        waitingPosition: 'before'
-      };
+      const newState = { ...prevState, waitRemaining: waitBeforeMs / 1000, waitingPosition: 'before' as const };
+      return updateSimState(activeChain, settings, newState, deltaTime);
     }
   }
 
-  // 2. Heading Alignment
-  const targetPoseAtT = getRobotPoseAtProgress(path, startPose, endPose, t);
-  const targetHeading = targetPoseAtT.heading;
-  
-  let headingDiff = targetHeading - currentHeading;
-  while (headingDiff > 180) headingDiff -= 360;
-  while (headingDiff < -180) headingDiff += 360;
+  // 2. Physics & Progress
+  // Get derivative to find local speed relative to t
+  let derivative: Point;
+  if (path.type === 'curve' && path.controlPoint1 && path.controlPoint2) {
+    derivative = getBezierDerivative(startPose, path.controlPoint1, path.controlPoint2, endPose, t);
+  } else {
+    derivative = getLineDerivative(startPose, endPose);
+  }
+  const tSpeed = Math.sqrt(derivative.x * derivative.x + derivative.y * derivative.y);
 
-  const maxTurn = (settings.angularVelocity || 1) * 180 * deltaTime;
-
-  // 3. Translational Movement
+  // Velocity update
   const translationalMax = Math.min(settings.maxVelocity, Math.sqrt(settings.xVelocity * settings.xVelocity + settings.yVelocity * settings.yVelocity));
-  
   let targetVelocity = translationalMax;
   if (path.velocityConstraint) {
     targetVelocity = Math.min(targetVelocity, path.velocityConstraint);
   }
 
-  // Deceleration logic
+  // Deceleration
   const remainingDistanceInPath = pathLength - distanceTravelledInPath;
   const isLastPath = pathIndex === activeChain.paths.length - 1;
   const effectiveDecel = settings.maxDeceleration;
   
-  // Pedro Pathing by default decelerates at the end of every path unless chained or specified
   if (isLastPath || path.deceleration === 'global' || path.deceleration === 'default' || path.deceleration === undefined) {
     const stopDistance = (currentVelocity * currentVelocity) / (2 * effectiveDecel);
     if (remainingDistanceInPath < stopDistance) {
@@ -223,7 +231,6 @@ export const updateSimState = (
 
   let newVelocity = currentVelocity;
   const effectiveAccel = settings.maxAcceleration;
-  
   if (currentVelocity < targetVelocity) {
     newVelocity = Math.min(targetVelocity, currentVelocity + effectiveAccel * deltaTime);
   } else if (currentVelocity > targetVelocity) {
@@ -231,59 +238,76 @@ export const updateSimState = (
   }
 
   const distanceStep = newVelocity * deltaTime;
-  const newDistanceTravelled = distanceTravelledInPath + distanceStep;
-  let newT = pathLength > 0 ? newDistanceTravelled / pathLength : 1;
+  const deltaT = tSpeed > 0 ? distanceStep / tSpeed : 1;
+  let newT = Math.min(1, t + deltaT);
 
-  if (newT > 1) newT = 1;
+  // 3. Heading update
+  const targetPoseAtT = getRobotPoseAtProgress(path, startPose, endPose, newT);
+  const targetHeading = targetPoseAtT.heading;
+  let headingDiff = targetHeading - currentHeading;
+  while (headingDiff > 180) headingDiff -= 360;
+  while (headingDiff < -180) headingDiff += 360;
 
-  // Update heading
+  const maxTurn = (settings.angularVelocity || 1) * 180 * deltaTime;
   let newHeading = currentHeading + Math.sign(headingDiff) * Math.min(Math.abs(headingDiff), maxTurn);
   newHeading = normalizeAngle(newHeading);
 
-  // End of path transition
-  let finalPathIndex = pathIndex;
-  let finalT = newT;
-  let finalDistanceTravelled = newDistanceTravelled;
-  let finalVelocity = newVelocity;
-  let finalWaitingPosition: 'before' | 'after' | 'none' = waitingPosition;
-  let finalWaitRemaining = 0;
-
+  // 4. State Transition
   if (newT >= 1) {
-    // Check if we need to finish turning
     let finalHeadingDiff = targetHeading - newHeading;
     while (finalHeadingDiff > 180) finalHeadingDiff -= 360;
     while (finalHeadingDiff < -180) finalHeadingDiff += 360;
 
+    // Must finish rotation before completing segment
     if (Math.abs(finalHeadingDiff) < 1.0) {
-      // Finished movement and rotation. Now check waitAfter.
       const waitAfterMs = path.waitAfterMs || path.waitAfter?.durationMs || 0;
-      if (waitAfterMs > 0 && (finalWaitingPosition as string) !== 'after') {
-        finalWaitingPosition = 'after';
-        finalWaitRemaining = waitAfterMs / 1000;
-        finalVelocity = 0;
+      if (waitAfterMs > 0) {
+        return {
+          ...prevState,
+          t: 1,
+          currentVelocity: 0,
+          distanceTravelledInPath: pathLength,
+          currentHeading: targetHeading,
+          waitRemaining: waitAfterMs / 1000,
+          waitingPosition: 'after',
+          totalTime: prevState.totalTime + deltaTime
+        };
       } else {
-        finalPathIndex++;
-        finalT = 0;
-        finalDistanceTravelled = 0;
-        finalWaitingPosition = 'none';
-        finalVelocity = 0; // Reset velocity for next path segment usually
+        // Complete segment and use leftover time for next
+        // For simplicity here we just move to index. Accurate leftover would require splitting deltaTime.
+        return {
+          ...prevState,
+          pathIndex: pathIndex + 1,
+          t: 0,
+          currentVelocity: 0,
+          distanceTravelledInPath: 0,
+          currentHeading: targetHeading,
+          waitingPosition: 'none',
+          totalTime: prevState.totalTime + deltaTime
+        };
       }
     } else {
-      finalT = 1;
-      finalVelocity = 0;
-      finalDistanceTravelled = pathLength;
+      // Still turning at end of path
+      return {
+        ...prevState,
+        t: 1,
+        currentVelocity: 0,
+        distanceTravelledInPath: pathLength,
+        currentHeading: newHeading,
+        totalTime: prevState.totalTime + deltaTime
+      };
     }
   }
 
   return {
-    pathIndex: finalPathIndex,
-    t: finalT,
-    currentVelocity: finalVelocity,
-    distanceTravelledInPath: finalDistanceTravelled,
+    pathIndex,
+    t: newT,
+    currentVelocity: newVelocity,
+    distanceTravelledInPath: distanceTravelledInPath + distanceStep,
     currentHeading: newHeading,
     totalTime: prevState.totalTime + deltaTime,
-    waitRemaining: finalWaitRemaining,
-    waitingPosition: finalWaitingPosition
+    waitRemaining: 0,
+    waitingPosition
   };
 };
 
@@ -322,7 +346,6 @@ export const calculatePathTime = (
     const currentIdx = Math.min(simState.pathIndex, activeChain.paths.length - 1);
     const currentWaitPos = simState.waitingPosition;
 
-    // Detect event changes
     if (!currentEvent || currentEvent.pathIndex !== currentIdx || currentEvent.waitPosition !== (currentWaitPos === 'none' ? undefined : currentWaitPos)) {
       if (currentEvent) {
         currentEvent.endTime = simState.totalTime;
@@ -349,19 +372,13 @@ export const calculatePathTime = (
     if (currentEvent.type === 'travel') segmentTimes.push(currentEvent.duration);
   }
 
-  // Calculate total distance
   activeChain.paths.forEach(p => {
     const s = activeChain.poses.find(pose => pose.id === p.startPoseId)!;
     const e = activeChain.poses.find(pose => pose.id === p.endPoseId)!;
     totalDistance += getPathLength(p, s, e);
   });
 
-  return {
-    totalTime: simState.totalTime,
-    segmentTimes,
-    totalDistance,
-    timeline
-  };
+  return { totalTime: simState.totalTime, segmentTimes, totalDistance, timeline };
 };
 
 /**
@@ -385,7 +402,6 @@ export const calculateRobotState = (
     const pose = getRobotPoseAtProgress(path, s, e, state.t);
     return { ...pose, heading: state.currentHeading };
   } else {
-    // Last pose
     const lastPath = activeChain.paths[activeChain.paths.length - 1];
     const e = activeChain.poses.find(p => p.id === lastPath.endPoseId)!;
     return { x: e.x, y: e.y, heading: state.currentHeading };
@@ -418,7 +434,7 @@ export const getSimStateAtTime = (
     const remaining = targetTime - simState.totalTime;
     const step = Math.min(dt, remaining);
     simState = updateSimState(activeChain, settings, simState, step);
-    if (step < dt) break;
+    if (step < dt && simState.totalTime < targetTime) break;
   }
 
   return simState;
@@ -472,12 +488,18 @@ export const generateOnionLayers = (
   const totalDistance = timePrediction.totalDistance;
   const numLayers = Math.max(1, Math.floor(totalDistance / spacingInches));
   
+  // To match the official visualizer, we iterate through the timeline to pick accurate frames
   for (let i = 0; i <= numLayers; i++) {
     const dist = i * (totalDistance / numLayers);
     const percent = (dist / totalDistance) * 100;
-    const state = calculateRobotState(percent, timePrediction.timeline, activeChain, settings);
     
-    // Calculate corners
+    // Find the current path index based on time at this distance
+    // This is an approximation for visualization
+    const state = calculateRobotState(percent, timePrediction.timeline, activeChain, settings);
+    const simTimeAtPercent = (percent / 100) * totalTime;
+    const currentEvent = timePrediction.timeline.find(e => e.startTime <= simTimeAtPercent && e.endTime >= simTimeAtPercent);
+    const pathIndex = currentEvent?.pathIndex ?? 0;
+    
     const w = settings.robotWidth / 2;
     const h = settings.robotHeight / 2;
     const angle = (state.heading * Math.PI) / 180;
@@ -488,16 +510,13 @@ export const generateOnionLayers = (
       { x: h, y: w },
       { x: -h, y: w }
     ].map(p => {
-      // Note: Pedro Pathing coordinates: X front, Y left
-      // Konva coordinates: X right, Y down
-      // Field: CCW heading
       return {
         x: state.x + p.x * Math.cos(angle) - p.y * Math.sin(angle),
         y: state.y + p.x * Math.sin(angle) + p.y * Math.cos(angle)
       };
     });
     
-    layers.push({ corners, pathIndex: 0 });
+    layers.push({ corners, pathIndex });
   }
   
   return layers;

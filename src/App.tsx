@@ -7,7 +7,8 @@ import { FieldOverlay } from './components/FieldOverlay';
 import { useUndoRedo } from './hooks/useUndoRedo';
 import decodeImg from './fields/decode.png';
 
-import { getRobotPoseAtProgress, updateSimState, SimState, calculateTotalSimTime, getSimStateAtTime } from './utils/pathSimulation';
+import { getRobotPoseAtProgress, updateSimState, SimState, calculateTotalSimTime, getSimStateAtTime, calculatePathTime } from './utils/pathSimulation';
+import { TimelineEvent } from './types';
 
 const POSE_COLORS = [
   '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',
@@ -65,8 +66,10 @@ function App() {
   // Simulation state
   const [isSimulating, setIsSimulating] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
+  const [isLooping, setIsLooping] = useState(false);
   const [totalSimTime, setTotalSimTime] = useState(0);
   const [simProgressTime, setSimProgressTime] = useState(0);
+  const [poseMarkers, setPoseMarkers] = useState<{ time: number; color: string; name: string }[]>([]);
   const [simPose, setSimPose] = useState<{ x: number; y: number; heading: number } | null>(null);
 
   const simStateRef = useRef<SimState | null>(null);
@@ -115,11 +118,34 @@ function App() {
 
     const settings = activeChain.simulationSettings || defaultSimulationSettings;
 
+    // Recalculate total time if chain changes
+    const timePrediction = calculatePathTime(activeChain, settings);
+    const total = timePrediction.totalTime;
+    setTotalSimTime(total);
+
+    // Calculate markers
+    const markers: { time: number; color: string; name: string }[] = [];
+    const startPose = activeChain.poses.find(p => p.id === activeChain.startingPoseId);
+    if (startPose) {
+      markers.push({ time: 0, color: startPose.color || '#8b5cf6', name: startPose.name });
+    }
+
+    timePrediction.timeline.forEach(event => {
+      if (event.type === 'travel') {
+        const path = activeChain.paths[event.pathIndex!];
+        const endPose = activeChain.poses.find(p => p.id === path.endPoseId);
+        if (endPose) {
+          markers.push({ time: event.endTime, color: endPose.color || '#3366cc', name: endPose.name });
+        }
+      }
+    });
+    setPoseMarkers(markers);
+
+    // Initialize or reset lastTimeRef when unpausing or starting
+    lastTimeRef.current = performance.now();
+
     // Initialize simulation state if it doesn't exist
     if (!simStateRef.current) {
-      const total = calculateTotalSimTime(activeChain, settings);
-      setTotalSimTime(total);
-
       const initialPath = activeChain.paths[0];
       const initialStartPose = activeChain.poses.find(p => p.id === initialPath?.startPoseId);
       
@@ -133,25 +159,42 @@ function App() {
         waitRemaining: 0,
         waitingPosition: 'none'
       };
-      lastTimeRef.current = performance.now();
     }
 
     let animationFrame: number;
 
     const animate = (time: number) => {
-      const deltaTime = (time - lastTimeRef.current) / 1000;
+      const deltaTime = Math.min(0.1, (time - lastTimeRef.current) / 1000); // Cap deltaTime to 100ms
       lastTimeRef.current = time;
 
       if (!isPaused && simStateRef.current) {
         simStateRef.current = updateSimState(activeChain, settings, simStateRef.current, deltaTime);
-        setSimProgressTime(simStateRef.current.totalTime);
+        
+        // Update progress bar, clamping to the local 'total' to avoid state lag
+        const progress = Math.min(total, simStateRef.current.totalTime);
+        setSimProgressTime(progress);
 
         if (simStateRef.current.pathIndex >= activeChain.paths.length) {
-          setIsSimulating(false);
-          setIsPaused(false);
-          setSimPose(null);
-          simStateRef.current = null;
-          return;
+          setSimProgressTime(total); // Ensure it hits the end
+          if (isLooping) {
+            const initialPath = activeChain.paths[0];
+            const initialStartPose = activeChain.poses.find(p => p.id === initialPath?.startPoseId);
+            simStateRef.current = {
+              pathIndex: 0,
+              t: 0,
+              currentVelocity: 0,
+              distanceTravelledInPath: 0,
+              currentHeading: initialStartPose?.heading || 0,
+              totalTime: 0,
+              waitRemaining: 0,
+              waitingPosition: 'none'
+            };
+            // Note: Don't setSimProgressTime(0) here to avoid flicker, 
+            // the next frame will set it based on new totalTime
+          } else {
+            setIsPaused(true);
+            return;
+          }
         }
 
         const path = activeChain.paths[simStateRef.current.pathIndex];
@@ -354,9 +397,36 @@ function App() {
     );
   }, [activeChain, updateActiveChain]);
 
-  const handleSeek = useCallback((targetTime: number) => {
-    if (!isSimulating || activeChain.paths.length === 0) return;
+  const restartSimulation = useCallback(() => {
+    if (activeChain.paths.length === 0) return;
+    const settings = activeChain.simulationSettings || defaultSimulationSettings;
+    const total = calculateTotalSimTime(activeChain, settings);
+    setTotalSimTime(total);
+
+    const initialPath = activeChain.paths[0];
+    const initialStartPose = activeChain.poses.find(p => p.id === initialPath?.startPoseId);
     
+    simStateRef.current = {
+      pathIndex: 0,
+      t: 0,
+      currentVelocity: 0,
+      distanceTravelledInPath: 0,
+      currentHeading: initialStartPose?.heading || 0,
+      totalTime: 0,
+      waitRemaining: 0,
+      waitingPosition: 'none'
+    };
+    setSimProgressTime(0);
+    setIsPaused(false);
+    lastTimeRef.current = performance.now();
+  }, [activeChain]);
+
+  const handleSeek = useCallback((targetTime: number) => {
+    if (activeChain.paths.length === 0) return;
+    
+    // Ensure simulation is active/visible
+    if (!isSimulating) setIsSimulating(true);
+
     const settings = activeChain.simulationSettings || defaultSimulationSettings;
     const newState = getSimStateAtTime(activeChain, settings, targetTime);
     
@@ -370,6 +440,11 @@ function App() {
     if (path && startPose && endPose) {
       const poseAtT = getRobotPoseAtProgress(path, startPose, endPose, newState.t);
       setSimPose({ ...poseAtT, heading: newState.currentHeading });
+    } else if (activeChain.paths.length > 0) {
+      // Fallback: If at end or invalid, show the last pose
+      const lastPath = activeChain.paths[activeChain.paths.length - 1];
+      const endPose = activeChain.poses.find(p => p.id === lastPath.endPoseId);
+      if (endPose) setSimPose({ x: endPose.x, y: endPose.y, heading: newState.currentHeading });
     }
     
     // Pause when scrubbing
@@ -497,41 +572,98 @@ function App() {
 
           {/* Simulation Playback Bar */}
           {isSimulating && (
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-2xl px-6">
-              <div className="bg-gray-900/90 backdrop-blur-sm border border-gray-700 rounded-xl p-4 shadow-2xl space-y-3">
-                <div className="flex items-center justify-between gap-4">
-                  <button 
-                    onClick={() => setIsPaused(!isPaused)}
-                    className="w-10 h-10 flex items-center justify-center bg-blue-600 hover:bg-blue-500 text-white rounded-full transition-colors shadow-lg"
-                  >
-                    {isPaused ? (
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
-                    ) : (
-                      <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                    )}
-                  </button>
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl px-4 text-white">
+              <div className="bg-gray-900/80 backdrop-blur-md border border-gray-700/50 rounded-2xl p-2.5 shadow-2xl">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2.5 flex-shrink-0">
+                    <button 
+                      onClick={() => {
+                        if (simStateRef.current && simStateRef.current.pathIndex >= activeChain.paths.length) {
+                          restartSimulation();
+                        } else {
+                          setIsPaused(!isPaused);
+                        }
+                      }}
+                      className="w-10 h-10 flex items-center justify-center bg-blue-600/90 hover:bg-blue-500 text-white rounded-full transition-all shadow-lg active:scale-95 flex-shrink-0"
+                    >
+                      {isPaused ? (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" /></svg>
+                      ) : (
+                        <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                      )}
+                    </button>
+                    <button 
+                      onClick={() => setIsLooping(!isLooping)}
+                      className={`w-8 h-8 flex items-center justify-center rounded-full transition-all flex-shrink-0 ${isLooping ? 'bg-blue-600 text-white shadow-inner' : 'bg-gray-800/80 text-gray-400 hover:text-gray-200'}`}
+                      title="Toggle Looping"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4V9H4.58151C5.46696 6.54828 7.5827 4.73766 10.1377 4.22321C12.6928 3.70876 15.3406 4.55883 17.027 6.43005M20 20V15H19.4185C18.533 17.4517 16.4173 19.2623 13.8623 19.7768C11.3072 20.2912 8.65942 19.4412 6.973 17.57" />
+                      </svg>
+                    </button>
+                  </div>
                   
-                  <div className="flex-1 space-y-1">
-                    <div className="flex justify-between text-[10px] font-mono text-gray-400">
-                      <span>{simProgressTime.toFixed(2)}s</span>
-                      <span>{totalSimTime.toFixed(2)}s</span>
-                    </div>
-                    <div className="relative h-4 flex items-center">
+                  <div className="flex-1 flex items-center gap-4 min-w-0">
+                    <div className="relative flex-1 h-10 flex items-center group px-2">
+                      {/* Progression Indicator */}
+                      <style>{`
+                        .custom-slider::-webkit-slider-thumb {
+                          -webkit-appearance: none;
+                          width: 22px;
+                          height: 22px;
+                          background: #3b82f6;
+                          border-radius: 50%;
+                          cursor: pointer;
+                          border: 2px solid #111827;
+                        }
+                      `}</style>
                       <input 
                         type="range"
                         min="0"
-                        max={totalSimTime || 0}
-                        step="0.01"
+                        max={totalSimTime > 0 ? totalSimTime : 1}
+                        step="0.001"
                         value={simProgressTime || 0}
                         onChange={(e) => handleSeek(parseFloat(e.target.value))}
-                        className="w-full h-1.5 bg-gray-800 rounded-full appearance-none cursor-pointer accent-blue-500 focus:outline-none"
+                        className="custom-slider w-full h-5 bg-gray-800/40 rounded-full appearance-none cursor-default focus:outline-none relative z-10 m-0 p-0 shadow-inner"
                       />
+
+                      {/* Pose Markers */}
+                      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-0 pointer-events-none z-30">
+                        {poseMarkers.map((marker, idx) => {
+                          const percentage = (marker.time / (totalSimTime || 1));
+                          return (
+                            <button 
+                              key={`marker-${idx}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSeek(marker.time);
+                              }}
+                              className="absolute top-0 w-4 h-4 rounded-full border-2 border-gray-950 shadow-xl transition-all hover:scale-150 active:scale-90 pointer-events-auto cursor-pointer"
+                              style={{ 
+                                // Offset the markers to keep them within the rounded track
+                                left: `calc(${percentage * 94}% + 3%)`,
+                                backgroundColor: marker.color,
+                                transform: 'translate(-50%, -50%)'
+                              }}
+                              title={`${marker.name} (${marker.time.toFixed(2)}s) - Click to seek`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+
+
+                    
+                    <div className="flex-shrink-0 font-mono text-[10px] text-gray-300 bg-gray-800/80 px-2 py-1 rounded shadow-sm border border-gray-700/50 min-w-[90px] text-center">
+                      <span className="text-blue-300 font-bold">{simProgressTime.toFixed(2)}</span>
+                      <span className="mx-1 text-gray-500">/</span>
+                      <span>{totalSimTime.toFixed(2)}s</span>
                     </div>
                   </div>
 
                   <button 
                     onClick={() => setIsSimulating(false)}
-                    className="p-2 text-gray-400 hover:text-white transition-colors"
+                    className="p-2 text-gray-400 hover:text-white transition-colors bg-gray-800/50 hover:bg-gray-800/80 rounded-lg flex-shrink-0 shadow-sm border border-gray-700/30"
                     title="Stop Simulation"
                   >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
