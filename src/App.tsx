@@ -8,7 +8,6 @@ import { useUndoRedo } from './hooks/useUndoRedo';
 import decodeImg from './fields/decode.png';
 
 import { getRobotPoseAtProgress, updateSimState, SimState, calculateTotalSimTime, getSimStateAtTime, calculatePathTime } from './utils/pathSimulation';
-import { TimelineEvent } from './types';
 
 const POSE_COLORS = [
   '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b',

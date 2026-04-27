@@ -186,7 +186,7 @@ export const updateSimState = (
       t: 0,
       currentVelocity: 0,
       distanceTravelledInPath: 0,
-      waitingPosition: 'none'
+      waitingPosition: 'none' as const
     };
     return updateSimState(activeChain, settings, newState, deltaTime);
   }

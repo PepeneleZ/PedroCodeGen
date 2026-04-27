@@ -113,7 +113,7 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
 
       // Deceleration and braking
       if(path.deceleration === 'default' && path.brakingStrength !== undefined && (path.brakingStrength ?? 0) > 0) {
-        lines.push(`    .setBreakingStrength(${path.brakingStrength.toFixed(1)})`);
+        lines.push(`    .setBrakingStrength(${path.brakingStrength.toFixed(1)})`);
       }
       if (path.deceleration === 'global') {
         if ((path.brakingStrength ?? 0) > 0 && path.brakingStrength !== undefined) {
@@ -170,13 +170,12 @@ export const CodeGenerator = ({ pathChain }: CodeGeneratorProps) => {
 
     const fullCode = `package org.firstinspires.ftc.teamcode;
 
-import com.pedro-pathing.follower.Follower;
-import com.pedro-pathing.constants.FollowerConstants;
-import com.pedro-pathing.pathing.BezierCurve;
-import com.pedro-pathing.pathing.BezierLine;
-import com.pedro-pathing.pathing.Path;
-import com.pedro-pathing.pathing.PathChain;
-import com.pedro-pathing.util.Pose;
+import com.pedropathing.follower.Follower;
+import com.pedropathing.pathgen.BezierCurve;
+import com.pedropathing.pathgen.BezierLine;
+import com.pedropathing.pathgen.Path;
+import com.pedropathing.pathgen.PathChain;
+import com.pedropathing.localization.Pose;
 
 public class ${className} {
     ${generatedCode.replace(/\n/g, '\n    ')}

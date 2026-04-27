@@ -69,8 +69,8 @@ export const Field = ({
 
   // Ghost path points
   const ghostPathPoints = useMemo(() => {
-    if (!settings?.showGhostPaths || pathChain.paths.length === 0) return [];
-    const pts = generateGhostPathPoints(pathChain, settings as any);
+    if (!settings || !settings.showGhostPaths || pathChain.paths.length === 0) return [];
+    const pts = generateGhostPathPoints(pathChain, settings);
     return pts.flatMap(p => {
       const cp = pointToCanvas(p, canvasSize);
       return [cp.x, cp.y];
@@ -79,8 +79,8 @@ export const Field = ({
 
   // Onion layers
   const onionLayers = useMemo(() => {
-    if (!settings?.showOnionLayers || pathChain.paths.length === 0) return [];
-    return generateOnionLayers(pathChain, settings as any, settings.onionLayerSpacing || 10);
+    if (!settings || !settings.showOnionLayers || pathChain.paths.length === 0) return [];
+    return generateOnionLayers(pathChain, settings, settings.onionLayerSpacing || 10);
   }, [pathChain, settings]);
 
   // Check if click is near a pose
